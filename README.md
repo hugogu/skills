@@ -26,7 +26,7 @@
 **使用示例**
 ```bash
 # 进入 skill 目录
-cd .agents/skills/dockerhub-to-aliyun-acr-sync
+cd skills/dockerhub-to-aliyun-acr-sync
 
 # 同步单个镜像
 docker pull --platform linux/amd64 ubuntu/apache2:2.4-21.10_beta
@@ -34,7 +34,7 @@ docker tag ubuntu/apache2:2.4-21.10_beta $ALIYUN_ACR_REGISTRY/apache2:2.4-21.10_
 docker push $ALIYUN_ACR_REGISTRY/apache2:2.4-21.10_beta
 ```
 
-详见 [SKILL.md](.agents/skills/dockerhub-to-aliyun-acr-sync/SKILL.md)
+详见 [SKILL.md](skills/dockerhub-to-aliyun-acr-sync/SKILL.md)
 
 ---
 
@@ -64,7 +64,7 @@ curl -X POST -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 # 角色对应值：10=Guest, 20=Reporter, 30=Developer, 40=Maintainer
 ```
 
-详见 [SKILL.md](.agents/skills/grant-gitlab/SKILL.md)
+详见 [SKILL.md](skills/grant-gitlab/SKILL.md)
 
 ---
 
@@ -109,7 +109,7 @@ docker-compose pull
 docker-compose up -d
 ```
 
-详见 [.agents/skills/docker-deploy/SKILL.md](.agents/skills/docker-deploy/SKILL.md)
+详见 [SKILL.md](skills/docker-deploy/SKILL.md)
 
 ---
 
@@ -121,9 +121,9 @@ docker-compose up -d
 
 ```bash
 # 在 Claude Code 中安装
-claude config set skills.dockerhub-to-aliyun-acr-sync.path /path/to/skills/.agents/skills/dockerhub-to-aliyun-acr-sync
-claude config set skills.grant-gitlab.path /path/to/skills/.agents/skills/grant-gitlab
-claude config set skills.docker-deploy.path /path/to/skills/.agents/skills/docker-deploy
+claude config set skills.dockerhub-to-aliyun-acr-sync.path /path/to/skills/skills/dockerhub-to-aliyun-acr-sync
+claude config set skills.grant-gitlab.path /path/to/skills/skills/grant-gitlab
+claude config set skills.docker-deploy.path /path/to/skills/skills/docker-deploy
 ```
 
 安装后可直接对话使用：
@@ -140,7 +140,7 @@ claude config set skills.docker-deploy.path /path/to/skills/.agents/skills/docke
 ## 项目结构
 
 ```
-.agents/skills/
+skills/
 ├── dockerhub-to-aliyun-acr-sync/    # Docker 镜像同步
 │   └── SKILL.md                     # 完整使用说明
 ├── grant-gitlab/                    # GitLab 权限管理
