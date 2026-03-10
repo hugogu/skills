@@ -68,6 +68,51 @@ curl -X POST -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 
 ---
 
+### docker-deploy
+
+创建完整的 Docker 虚拟化部署基础设施，包括 docker-compose 编排、多环境支持、镜像仓库管理和网络感知的构建脚本。
+
+**功能**
+- 单命令启动完整应用栈（应用服务 + 依赖服务）
+- 支持本地开发（从 Dockerfile 构建）和生产环境（使用预构建镜像）
+- Registry 前缀切换，轻松切换不同环境（本地/测试/生产）
+- 精细化版本控制，所有第三方镜像使用固定版本（无 latest）
+- 网络感知脚本，所有推送操作在最后执行，减少网络切换
+
+**前置条件**
+- Docker CLI
+- docker-compose
+- 镜像仓库访问权限（用于生产部署）
+
+**使用示例**
+```bash
+# 设置项目 Docker 部署
+# Claude 会自动创建以下结构：
+# deploy/
+# ├── docker-compose.yml          # 主编排文件
+# ├── .env.template              # 环境变量模板
+# ├── scripts/
+# │   └── build-and-push.sh      # 构建推送脚本
+# └── services/
+#     └── api/
+#         └── Dockerfile
+
+# 本地开发
+cd deploy
+docker-compose up --build
+
+# 构建并推送到生产仓库
+./scripts/build-and-push.sh --registry registry.example.com --version 1.0.0
+
+# 生产环境部署
+docker-compose pull
+docker-compose up -d
+```
+
+详见 [.agents/skills/docker-deploy/SKILL.md](.agents/skills/docker-deploy/SKILL.md)
+
+---
+
 ## 安装方法
 
 这些 Skill 设计用于 Claude Code 环境，也可单独使用。
@@ -76,13 +121,15 @@ curl -X POST -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 
 ```bash
 # 在 Claude Code 中安装
-claude config set skills.dockerhub-to-aliyun-acr-sync.path /path/to/skills/dockerhub-to-aliyun-acr-sync
-claude config set skills.grant-gitlab.path /path/to/skills/grant-gitlab
+claude config set skills.dockerhub-to-aliyun-acr-sync.path /path/to/skills/.agents/skills/dockerhub-to-aliyun-acr-sync
+claude config set skills.grant-gitlab.path /path/to/skills/.agents/skills/grant-gitlab
+claude config set skills.docker-deploy.path /path/to/skills/.agents/skills/docker-deploy
 ```
 
 安装后可直接对话使用：
 - "帮我把 nginx:1.27.3 同步到阿里云"
 - "给张三添加 myproject 的 Developer 权限"
+- "为我的 Node.js 项目设置 Docker 部署"
 
 ### 方式二：独立使用
 
@@ -93,11 +140,16 @@ claude config set skills.grant-gitlab.path /path/to/skills/grant-gitlab
 ## 项目结构
 
 ```
-skills/
+.agents/skills/
 ├── dockerhub-to-aliyun-acr-sync/    # Docker 镜像同步
 │   └── SKILL.md                     # 完整使用说明
-└── grant-gitlab/                    # GitLab 权限管理
-    └── SKILL.md                     # 完整使用说明
+├── grant-gitlab/                    # GitLab 权限管理
+│   └── SKILL.md                     # 完整使用说明
+└── docker-deploy/                   # Docker 部署基础设施
+    ├── SKILL.md                     # 完整使用说明
+    ├── scripts/                     # 构建推送脚本
+    ├── references/                  # 模板参考
+    └── examples/                    # 使用示例
 ```
 
 ---
