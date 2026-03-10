@@ -26,7 +26,7 @@
 **使用示例**
 ```bash
 # 进入 skill 目录
-cd skills/dockerhub-to-aliyun-acr-sync
+cd .agents/skills/dockerhub-to-aliyun-acr-sync
 
 # 同步单个镜像
 docker pull --platform linux/amd64 ubuntu/apache2:2.4-21.10_beta
@@ -34,7 +34,7 @@ docker tag ubuntu/apache2:2.4-21.10_beta $ALIYUN_ACR_REGISTRY/apache2:2.4-21.10_
 docker push $ALIYUN_ACR_REGISTRY/apache2:2.4-21.10_beta
 ```
 
-详见 [SKILL.md](skills/dockerhub-to-aliyun-acr-sync/SKILL.md)
+详见 [SKILL.md](.agents/skills/dockerhub-to-aliyun-acr-sync/SKILL.md)
 
 ---
 
@@ -64,7 +64,7 @@ curl -X POST -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 # 角色对应值：10=Guest, 20=Reporter, 30=Developer, 40=Maintainer
 ```
 
-详见 [SKILL.md](skills/grant-gitlab/SKILL.md)
+详见 [SKILL.md](.agents/skills/grant-gitlab/SKILL.md)
 
 ---
 
