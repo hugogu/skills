@@ -1,0 +1,37 @@
+{
+  "skill_name": "docker-deploy",
+  "evals": [
+    {
+      "id": 1,
+      "name": "basic-nodejs-api",
+      "prompt": "Set up Docker deployment for a simple Node.js Express API. The API listens on port 3000, connects to a PostgreSQL database, and uses Redis for caching. Create all necessary files including docker-compose.yml, Dockerfile, .env.template, and build scripts. The project structure should be organized with a deploy/ directory.",
+      "expected_output": "Should create deploy/ directory with docker-compose.yml, Dockerfile, .env.template, scripts/build-and-push.sh, and README.md. Docker-compose should use ${REGISTRY_PREFIX} for custom images and pinned versions for PostgreSQL and Redis. All scripts should push images at the end.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "name": "multi-service-python",
+      "prompt": "Create Docker deployment infrastructure for a Python FastAPI application with the following services: main API, Celery worker for background tasks, PostgreSQL database, Redis message broker, and Nginx reverse proxy. The setup should support both local development (building from Dockerfiles) and production (using prebuilt images from a private registry). Include all configuration files and scripts.",
+      "expected_output": "Should create complete deploy/ directory structure with docker-compose.yml using registry prefix pattern, multi-stage Dockerfiles for Python services, .env.template with all variables documented, and network-aware build scripts.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 3,
+      "name": "full-stack-react-node",
+      "prompt": "I have a full-stack application with React frontend, Node.js API, and MongoDB database. I need Docker deployment setup that includes: 1) Multi-stage Dockerfiles for both frontend and API, 2) docker-compose.yml that orchestrates all services, 3) Environment configuration with separate local and production settings, 4) Build and push scripts that push images at the end after all operations succeed, 5) All third-party images must use specific versions (no 'latest' tags).",
+      "expected_output": "Should create deploy/ with docker-compose.yml, services/api/Dockerfile, services/frontend/Dockerfile, .env.template with MongoDB configuration, scripts/build-and-push.sh with network-aware workflow, and comprehensive README.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 4,
+      "name": "microservices-go",
+      "prompt": "Set up Docker deployment for a microservices architecture written in Go with 4 services: user-service, order-service, payment-service, and notification-service. Each service should have its own Dockerfile with multi-stage build. Include PostgreSQL for user data, MongoDB for orders, RabbitMQ for messaging between services, and Redis for caching. The setup should use a registry prefix system to easily switch between local builds and production images.",
+      "expected_output": "Should create deploy/ directory with docker-compose.yml orchestrating all 6 application services plus 4 infrastructure services. Each service should have its own Dockerfile. Scripts should handle building and pushing all 6 custom images at the end. All third-party images should use pinned versions.",
+      "files": [],
+      "assertions": []
+    }
+  ]
+}
