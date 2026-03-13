@@ -113,6 +113,29 @@ docker-compose up -d
 
 ---
 
+---
+
+### git-commit
+
+智能 Git 提交工具，提交前自动同步远程、判断是否 amend，并生成 Conventional Commits 格式的提交信息。
+
+**功能**
+- 提交前 `git fetch` 检查远程是否有新提交，有则先 `git pull --rebase` 同步
+- 遇到 rebase 冲突立即终止，输出冲突文件列表和逐步解决命令
+- 严格判断是否 amend 上一次提交（type + scope 完全相同且未推送才 amend）
+- 自动生成符合 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) 规范的提交信息
+- footer 中附加当前 Agent 及 Model 信息
+
+**触发方式**
+- "帮我提交代码"
+- "commit this"
+- "/commit"
+- "save my changes"
+
+详见 [SKILL.md](skills/git-commit/SKILL.md)
+
+---
+
 ## 安装方法
 
 这些 Skill 设计用于 Claude Code 环境，也可单独使用。
@@ -141,6 +164,8 @@ claude config set skills.docker-deploy.path /path/to/skills/skills/docker-deploy
 
 ```
 skills/
+├── git-commit/                      # 智能 Git 提交
+│   └── SKILL.md                     # 完整使用说明
 ├── dockerhub-to-aliyun-acr-sync/    # Docker 镜像同步
 │   └── SKILL.md                     # 完整使用说明
 ├── grant-gitlab/                    # GitLab 权限管理
