@@ -1,0 +1,39 @@
+# Example Dockerfile with Prisma Migrate support
+# Both development and production stages include OpenSSL for Prisma Migrate
+
+ARG REGISTRY_PREFIX=""
+FROM ${REGISTRY_PREFIX}node:22.22.1-alpine3.23 AS base
+WORKDIR /app
+COPY package*.json ./
+COPY prisma ./prisma
+
+# Development stage with OpenSSL and auto-migration
+FROM base AS development
+RUN apk add --no-cache openssl3 ca-certificates
+RUN npm install
+RUN npx prisma generate
+COPY . .
+EXPOSE 3000
+# Auto-run migrations on startup
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run dev"]
+
+# Builder stage
+FROM base AS builder
+RUN npm install
+COPY . .
+RUN npx prisma generate
+RUN npm run build
+
+# Production stage with OpenSSL and auto-migration
+ARG REGISTRY_PREFIX=""
+FROM ${REGISTRY_PREFIX}node:22.22.1-alpine3.23 AS production
+RUN apk add --no-cache openssl3 ca-certificates
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
+COPY package*.json ./
+RUN mkdir -p /data/uploads
+EXPOSE 3000
+# Auto-run migrations on startup
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]

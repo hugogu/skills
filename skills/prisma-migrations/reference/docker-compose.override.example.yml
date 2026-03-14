@@ -1,0 +1,19 @@
+# Example docker-compose.override.yml for development
+# Includes automatic Prisma migration on container startup
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      target: development
+      args:
+        REGISTRY_PREFIX: ${REGISTRY_PREFIX:-}
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+      - ${DATA_DIR:-./data}/uploads:/data/uploads
+    environment:
+      - PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-arm64-openssl-3.0.x.so.node
+    # Generate Prisma client and apply migrations on startup
+    command: ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && npm run dev"]
