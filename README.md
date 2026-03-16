@@ -115,6 +115,44 @@ docker-compose up -d
 
 ---
 
+### metabase-query
+
+通过 Metabase MCP 安全地创建 Query、Dashboard 并执行 SQL 查询，内置数据库性能保护机制。
+
+**功能**
+- 自动检查表结构和索引，避免生成低效的全表扫描 SQL
+- 调研阶段强制限制输出行数（LIMIT 100），防止拖垮数据库
+- 提供 SQL 安全检查脚本，识别潜在性能问题
+- 生成符合安全规范的 SQL 查询模板
+- 支持创建原生 SQL Question 和可视化 Dashboard
+
+**前置条件**
+- Metabase 实例已部署
+- 已配置 Metabase MCP Server
+- 数据库连接已配置
+
+**使用示例**
+```bash
+# 在 Claude Code 中使用
+# 用户说："帮我创建一个查询最近7天订单的 Metabase Question"
+
+# Claude 会：
+# 1. 检查表结构和索引
+# 2. 生成安全的 SQL（带 LIMIT）
+# 3. 通过 Metabase MCP 创建 Question
+
+# SQL 安全检查（独立使用）
+cd skills/metabase-query
+python scripts/check_sql.py "SELECT * FROM orders WHERE created_at > '2024-01-01'"
+
+# 生成 SQL 模板
+python scripts/generate_template.py time_series table=orders time_column=created_at value_column=amount days=7
+```
+
+详见 [SKILL.md](skills/metabase-query/SKILL.md)
+
+---
+
 ### git-commit
 
 智能 Git 提交工具，提交前自动同步远程、判断是否 amend，并生成 Conventional Commits 格式的提交信息。
@@ -147,12 +185,15 @@ docker-compose up -d
 claude config set skills.dockerhub-to-aliyun-acr-sync.path /path/to/skills/skills/dockerhub-to-aliyun-acr-sync
 claude config set skills.grant-gitlab.path /path/to/skills/skills/grant-gitlab
 claude config set skills.docker-deploy.path /path/to/skills/skills/docker-deploy
+claude config set skills.metabase-query.path /path/to/skills/skills/metabase-query
+claude config set skills.prisma-migrations.path /path/to/skills/skills/prisma-migrations
 ```
 
 安装后可直接对话使用：
 - "帮我把 nginx:1.27.3 同步到阿里云"
 - "给张三添加 myproject 的 Developer 权限"
 - "为我的 Node.js 项目设置 Docker 部署"
+- "帮我创建一个查询最近7天订单的 Metabase Dashboard"
 
 ### 方式二：独立使用
 
@@ -170,11 +211,18 @@ skills/
 │   └── SKILL.md                     # 完整使用说明
 ├── grant-gitlab/                    # GitLab 权限管理
 │   └── SKILL.md                     # 完整使用说明
-└── docker-deploy/                   # Docker 部署基础设施
+├── docker-deploy/                   # Docker 部署基础设施
+│   ├── SKILL.md                     # 完整使用说明
+│   ├── scripts/                     # 构建推送脚本
+│   ├── references/                  # 模板参考
+│   └── examples/                    # 使用示例
+├── metabase-query/                  # Metabase 查询与 Dashboard
+│   ├── SKILL.md                     # 完整使用说明
+│   └── scripts/                     # SQL 安全检查脚本
+└── prisma-migrations/               # Prisma 迁移管理
     ├── SKILL.md                     # 完整使用说明
-    ├── scripts/                     # 构建推送脚本
-    ├── references/                  # 模板参考
-    └── examples/                    # 使用示例
+    ├── scripts/                     # 迁移脚本
+    └── reference/                   # 参考配置
 ```
 
 ---
