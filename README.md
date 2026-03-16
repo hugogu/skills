@@ -181,12 +181,12 @@ python scripts/generate_template.py time_series table=orders time_column=created
 ### 方式一：Claude Code Skill 安装（推荐）
 
 ```bash
-# 在 Claude Code 中安装
-claude config set skills.dockerhub-to-aliyun-acr-sync.path /path/to/skills/skills/dockerhub-to-aliyun-acr-sync
-claude config set skills.grant-gitlab.path /path/to/skills/skills/grant-gitlab
-claude config set skills.docker-deploy.path /path/to/skills/skills/docker-deploy
-claude config set skills.metabase-query.path /path/to/skills/skills/metabase-query
-claude config set skills.prisma-migrations.path /path/to/skills/skills/prisma-migrations
+# 安装指定 skill
+npx skills add https://github.com/hugogu/skills --skill metabase-query
+npx skills add https://github.com/hugogu/skills --skill dockerhub-to-aliyun-acr-sync
+npx skills add https://github.com/hugogu/skills --skill grant-gitlab
+npx skills add https://github.com/hugogu/skills --skill docker-deploy
+npx skills add https://github.com/hugogu/skills --skill git-commit
 ```
 
 安装后可直接对话使用：
