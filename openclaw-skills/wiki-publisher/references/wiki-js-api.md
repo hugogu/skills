@@ -110,7 +110,7 @@ mutation {
 import requests
 import json
 
-WIKI_URL = "https://wiki.hugogu.cn/graphql"
+WIKI_URL = "https://your-wiki-instance.com/graphql"
 WIKI_KEY = "your-api-key"
 
 def create_page(title, content, path, description="", tags=None):
