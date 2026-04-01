@@ -129,14 +129,14 @@ Suggest paths based on content type:
 
 ## Example Usage
 
-**User:** "把这篇文章发到 Wiki"
+**User:** "Publish this article to Wiki"
 
 **Process:**
 1. Analyze content to determine topic/category
 2. Suggest path: `topic/thinking-models/jevons-paradox`
-3. Generate tags: `["经济学", "思维模型", "反直觉"]`
+3. Generate tags: `["economics", "thinking-models", "counter-intuitive"]`
 4. Confirm with user
-5. Publish and return: `https://wiki.hugogu.cn/topic/thinking-models/jevons-paradox`
+5. Publish and return: `https://your-wiki-instance.com/topic/thinking-models/jevons-paradox`
 
 ## Error Handling
 
