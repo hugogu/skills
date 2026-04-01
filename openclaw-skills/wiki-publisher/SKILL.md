@@ -59,21 +59,101 @@ Content starts here...
 
 ## API Usage
 
-### Create Page
+### ⚠️ CRITICAL: GraphQL String Handling
 
-```graphql
-mutation {
+**The #1 cause of failures is incorrect string escaping.**
+
+#### ❌ WRONG - Direct String Interpolation
+
+```python
+# DON'T DO THIS - will fail with complex content
+query = f'''
+mutation {{
+  pages {{
+    create(content: "{content}") {{  # Content with quotes/newlines will break
+      page {{ id }}
+    }}
+  }}
+}}
+'''
+```
+
+**Why it fails:**
+- Markdown contains `"` (quotes) that terminate the GraphQL string
+- Newlines in content break the query syntax
+- Backslashes in code blocks escape incorrectly
+- JSON serialization double-escapes
+
+#### ✅ CORRECT - Use GraphQL Variables
+
+```python
+import json
+import requests
+
+query = '''
+mutation CreatePage($content: String!, $title: String!, $path: String!) {
   pages {
     create(
-      content: "# Title\n\nContent..."
-      description: "Page description"
+      content: $content
+      title: $title
+      path: $path
       editor: "markdown"
       isPublished: true
       isPrivate: false
       locale: "zh"
-      path: "topic/category/page-name"
-      tags: ["tag1", "tag2"]
-      title: "Page Title"
+    ) {
+      page {
+        id
+        path
+        title
+      }
+    }
+  }
+}
+'''
+
+variables = {
+    "content": raw_content,  # Pass raw content, no preprocessing
+    "title": "Page Title",
+    "path": "category/page-name"
+}
+
+# Let json.dumps handle all escaping automatically
+payload = json.dumps({
+    "query": query,
+    "variables": variables
+})
+
+response = requests.post(
+    "https://wiki.hugogu.cn/graphql",
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {WIKI_KEY}"
+    },
+    data=payload
+)
+```
+
+**Why this works:**
+- `json.dumps()` properly escapes all special characters
+- GraphQL Variables separate data from query structure
+- Handles quotes, newlines, backslashes, Unicode automatically
+
+### Create Page
+
+```graphql
+mutation CreatePage($content: String!, $title: String!, $path: String!, $description: String!, $tags: [String!]) {
+  pages {
+    create(
+      content: $content
+      description: $description
+      editor: "markdown"
+      isPublished: true
+      isPrivate: false
+      locale: "zh"
+      path: $path
+      tags: $tags
+      title: $title
     ) {
       page {
         id
@@ -85,14 +165,32 @@ mutation {
 }
 ```
 
+**Variables:**
+```json
+{
+  "content": "# Title\n\nContent...",
+  "title": "Page Title",
+  "path": "topic/category/page-name",
+  "description": "Page description",
+  "tags": ["tag1", "tag2"]
+}
+```
+
+**Type Requirements:**
+- `$content`: `String!` - Required, raw markdown
+- `$title`: `String!` - Required
+- `$path`: `String!` - Required, URL path
+- `$description`: `String!` - Required
+- `$tags`: `[String!]` - Optional array of non-null strings
+
 ### Update Page
 
 ```graphql
-mutation {
+mutation UpdatePage($id: Int!, $content: String!) {
   pages {
     update(
-      id: PAGE_ID
-      content: "# Updated Title\n\nUpdated content..."
+      id: $id
+      content: $content
       description: "Updated description"
       editor: "markdown"
     ) {
@@ -105,6 +203,83 @@ mutation {
   }
 }
 ```
+
+## GraphQL String Type Reference
+
+### String Representation
+
+GraphQL supports two string formats:
+
+#### 1. Single-line Strings (Double Quote)
+```graphql
+description: "Single line text"
+```
+
+**Escape sequences required:**
+| Character | Escape | Example |
+|-----------|--------|---------|
+| `"` | `\"` | `"Say \"hello\""` |
+| `\` | `\\` | `"C:\\path"` |
+| Newline | `\n` | `"Line1\nLine2"` |
+| Tab | `\t` | `"Col1\tCol2"` |
+
+#### 2. Block Strings (Triple Quote)
+```graphql
+content: """
+Multi-line
+content here
+"""
+```
+
+**Notes:**
+- Preserves newlines
+- Must escape `"""` within content
+- Leading whitespace is normalized based on first line
+
+### Common Escape Pitfalls
+
+#### Pitfall 1: Markdown Code Blocks
+
+Markdown contains triple backticks that conflict:
+```markdown
+```python
+def hello():
+    pass
+```
+```
+
+When inserted into GraphQL block string:
+```graphql
+content: """
+```python  # ❌ Conflicts with GraphQL """
+def hello()
+```
+"""
+```
+
+**Solution:** Use GraphQL Variables (recommended) or escape each `` ` `` as `\``.
+
+#### Pitfall 2: JSON Double-Escaping
+
+```python
+# ❌ WRONG - manual escape then JSON serialize
+content_escaped = content.replace('"', '\\"')
+payload = json.dumps({"query": f'..."{content_escaped}"...'})
+# Results in: \\\" (double escaped)
+
+# ✅ CORRECT - pass raw content to variables
+payload = json.dumps({
+    "query": "mutation($c: String!) { create(content: $c) }",
+    "variables": {"c": raw_content}
+})
+```
+
+#### Pitfall 3: Unicode Characters
+
+GraphQL Strings are UTF-8 encoded. Ensure:
+- Source file is UTF-8
+- HTTP request specifies `Content-Type: application/json; charset=utf-8`
+- No BOM (Byte Order Mark) at file start
 
 ## Path Conventions
 
@@ -124,26 +299,114 @@ Suggest paths based on content type:
 2. **Clean formatting** - Remove YAML frontmatter if present
 3. **Suggest metadata** - Propose path, tags, description
 4. **Confirm with user** - Show proposed wiki location
-5. **Publish** - Execute GraphQL mutation
+5. **Publish** - Execute GraphQL mutation using **Variables**
 6. **Return link** - Provide wiki page URL
-
-## Example Usage
-
-**User:** "Publish this article to Wiki"
-
-**Process:**
-1. Analyze content to determine topic/category
-2. Suggest path: `topic/thinking-models/jevons-paradox`
-3. Generate tags: `["economics", "thinking-models", "counter-intuitive"]`
-4. Confirm with user
-5. Publish and return: `https://your-wiki-instance.com/topic/thinking-models/jevons-paradox`
 
 ## Error Handling
 
-- API failures: Check WIKI_KEY and network connectivity
-- Path conflicts: Suggest alternative paths
-- Content too large: Consider splitting into multiple pages
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `ValidationError: Variable $content... invalid value` | String escaping issue | Use Variables + json.dumps |
+| `GraphQLError: Variable $tags of type [String]` | Tags type mismatch | Use `[String!]` not `[String]` |
+| `Unauthorized` | Invalid API key | Check WIKI_KEY env var |
+| `Page already exists` | Path conflict | Use update mutation or different path |
+
+## Example: Complete Python Implementation
+
+```python
+import os
+import json
+import requests
+
+WIKI_URL = "https://wiki.hugogu.cn/graphql"
+WIKI_KEY = os.environ.get("WIKI_KEY")
+
+def create_wiki_page(content: str, title: str, path: str, 
+                     description: str = "", tags: list = None) -> dict:
+    """
+    Create a Wiki.js page using GraphQL API.
+    
+    Args:
+        content: Raw markdown content (will be auto-escaped)
+        title: Page title
+        path: URL path (e.g., "tech/security/topic")
+        description: Page description
+        tags: List of tag strings
+    
+    Returns:
+        API response JSON
+    """
+    query = '''
+    mutation CreatePage($content: String!, $title: String!, 
+                       $path: String!, $description: String!, 
+                       $tags: [String!]) {
+      pages {
+        create(
+          content: $content
+          title: $title
+          path: $path
+          description: $description
+          tags: $tags
+          editor: "markdown"
+          isPublished: true
+          isPrivate: false
+          locale: "zh"
+        ) {
+          page {
+            id
+            path
+            title
+          }
+        }
+      }
+    }
+    '''
+    
+    variables = {
+        "content": content,  # Raw content - json.dumps handles escaping
+        "title": title,
+        "path": path,
+        "description": description or title,
+        "tags": tags or []
+    }
+    
+    payload = json.dumps({
+        "query": query,
+        "variables": variables
+    })
+    
+    response = requests.post(
+        WIKI_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {WIKI_KEY}"
+        },
+        data=payload
+    )
+    
+    return response.json()
+
+# Usage
+with open('article.md', 'r') as f:
+    content = f.read()
+
+result = create_wiki_page(
+    content=content,
+    title="反爬虫技术详解",
+    path="tech/security/anti-crawler",
+    description="反爬虫与反反爬虫技术详解",
+    tags=["网络安全", "爬虫"]
+)
+
+print(f"Created: https://wiki.hugogu.cn/{result['data']['pages']['create']['page']['path']}")
+```
 
 ## Reference
 
-See `references/wiki-js-api.md` for complete GraphQL schema and examples.
+- [GraphQL Spec - String Type](https://spec.graphql.org/October2021/#sec-String)
+- See `references/wiki-js-api.md` for complete GraphQL schema
+- Wiki.js API Documentation: https://docs.requarks.io/dev/api
+
+---
+
+**Remember:** Always use GraphQL Variables for content. Never interpolate strings directly into GraphQL queries.
