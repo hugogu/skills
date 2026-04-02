@@ -36,6 +36,7 @@ class ScanResult:
     third_party: Dict = field(default_factory=dict)
     pages_scanned: List[Dict] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    compliance_analysis: Dict = field(default_factory=dict)
 
 
 class IPAnalyzer:
@@ -159,6 +160,652 @@ class WHOISAnalyzer:
             matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
             results.extend([m.strip() for m in matches])
         return list(set(results))
+
+
+#!/usr/bin/env python3
+"""
+Website Scanner - Comprehensive website analysis tool
+Analyzes IP, DNS, content, SEO, compliance and third-party metrics
+"""
+
+import argparse
+import json
+import re
+import socket
+import subprocess
+import sys
+import urllib.parse
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+from datetime import datetime
+
+import requests
+from bs4 import BeautifulSoup
+
+
+@dataclass
+class ScanResult:
+    """Container for all scan results"""
+    url: str
+    domain: str
+    ip_info: Dict = field(default_factory=dict)
+    dns_info: Dict = field(default_factory=dict)
+    whois_info: Dict = field(default_factory=dict)
+    content_analysis: Dict = field(default_factory=dict)
+    metadata: Dict = field(default_factory=dict)
+    seo_data: Dict = field(default_factory=dict)
+    sitemap_data: Dict = field(default_factory=dict)
+    robots_txt: str = ""
+    llms_txt: str = ""
+    third_party: Dict = field(default_factory=dict)
+    pages_scanned: List[Dict] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    compliance_analysis: Dict = field(default_factory=dict)
+    compliance_analysis: Dict = field(default_factory=dict)  # NEW
+
+
+class IPAnalyzer:
+    """Analyze IP addresses (IPv4 and IPv6)"""
+    
+    @staticmethod
+    def resolve_hostname(domain: str) -> Dict:
+        """Resolve domain to IP addresses"""
+        result = {"ipv4": [], "ipv6": [], "errors": []}
+        
+        # IPv4
+        try:
+            ipv4_info = socket.getaddrinfo(domain, None, socket.AF_INET)
+            result["ipv4"] = list(set([info[4][0] for info in ipv4_info]))
+        except Exception as e:
+            result["errors"].append(f"IPv4 resolution failed: {e}")
+        
+        # IPv6
+        try:
+            ipv6_info = socket.getaddrinfo(domain, None, socket.AF_INET6)
+            result["ipv6"] = list(set([info[4][0] for info in ipv6_info]))
+        except Exception as e:
+            result["errors"].append(f"IPv6 resolution failed: {e}")
+        
+        return result
+    
+    @staticmethod
+    def get_ip_geolocation(ip: str) -> Dict:
+        """Get geolocation data for IP"""
+        try:
+            response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "ip": ip,
+                    "city": data.get("city"),
+                    "region": data.get("region"),
+                    "country": data.get("country_name"),
+                    "country_code": data.get("country_code"),
+                    "latitude": data.get("latitude"),
+                    "longitude": data.get("longitude"),
+                    "org": data.get("org"),
+                    "asn": data.get("asn"),
+                    "timezone": data.get("timezone")
+                }
+        except Exception as e:
+            return {"error": str(e)}
+        return {}
+
+
+class ComplianceAnalyzer:
+    """Analyze website for compliance requirements"""
+    
+    # Website type indicators
+    TYPE_INDICATORS = {
+        "ecommerce": {
+            "keywords": ["shop", "store", "cart", "checkout", "product", "buy", "purchase", "payment", "order", "price", "shipping", "payment", "stripe", "paypal", "alipay", "wechat pay"],
+            "paths": ["/cart", "/checkout", "/shop", "/product", "/order", "/payment"],
+            "selectors": [".product", ".cart", ".checkout", "[data-product]", ".add-to-cart", ".price"]
+        },
+        "social_media": {
+            "keywords": ["social", "community", "share", "follow", "friend", "post", "feed", "like", "comment", "profile", "messaging", "chat"],
+            "paths": ["/feed", "/profile", "/messages", "/notifications", "/friends", "/explore"],
+            "selectors": [".feed", ".post", ".comment", ".like", ".share", ".profile"]
+        },
+        "content_platform": {
+            "keywords": ["blog", "article", "news", "publish", "content", "read", "subscribe", "newsletter", "editorial"],
+            "paths": ["/blog", "/article", "/news", "/category", "/author"],
+            "selectors": [".article", ".blog-post", ".news", ".content"]
+        },
+        "saas_platform": {
+            "keywords": ["app", "dashboard", "login", "signup", "api", "service", "cloud", "software", "solution", "platform", "enterprise", "pricing", "trial"],
+            "paths": ["/dashboard", "/app", "/api", "/docs", "/login", "/signup", "/pricing"],
+            "selectors": [".dashboard", ".app", "[data-app]", ".pricing-table"]
+        },
+        "educational": {
+            "keywords": ["course", "learn", "education", "training", "academy", "school", "university", "lesson", "tutorial", "certification", "degree"],
+            "paths": ["/courses", "/learn", "/lessons", "/certification", "/academy"],
+            "selectors": [".course", ".lesson", ".curriculum", ".instructor"]
+        },
+        "healthcare": {
+            "keywords": ["health", "medical", "doctor", "patient", "clinic", "hospital", "pharmacy", "treatment", "diagnosis", "medicine"],
+            "paths": ["/patient", "/doctor", "/appointment", "/medical-records"],
+            "selectors": [".patient", ".medical", ".appointment"]
+        },
+        "financial": {
+            "keywords": ["bank", "finance", "investment", "trading", "crypto", "bitcoin", "ethereum", "wallet", "exchange", "loan", "credit", "insurance", "mortgage"],
+            "paths": ["/trading", "/wallet", "/exchange", "/invest", "/banking"],
+            "selectors": [".trading", ".wallet", ".exchange", ".financial"]
+        },
+        "marketplace": {
+            "keywords": ["marketplace", "vendor", "seller", "buyer", "listing", "auction", "bid", "classified", "freelance", "gig"],
+            "paths": ["/listings", "/vendors", "/sellers", "/marketplace"],
+            "selectors": [".listing", ".vendor", ".seller", ".marketplace"]
+        },
+        "gaming": {
+            "keywords": ["game", "gaming", "play", "player", "multiplayer", "esports", "casino", "betting", "gambling", "loot", "skin"],
+            "paths": ["/games", "/play", "/tournaments", "/leaderboard"],
+            "selectors": [".game", ".player", ".leaderboard"]
+        }
+    }
+    
+    @classmethod
+    def analyze(cls, url: str, content_analysis: Dict, html_content: str = "") -> Dict:
+        """Analyze website for type, purpose and compliance requirements"""
+        result = {
+            "website_type": "unknown",
+            "purpose": "",
+            "use_cases": [],
+            "compliance_requirements": [],
+            "jurisdictions": [],
+            "risk_level": "low",
+            "recommendations": []
+        }
+        
+        # Detect website type
+        website_type = cls._detect_website_type(url, content_analysis, html_content)
+        result["website_type"] = website_type["type"]
+        result["confidence"] = website_type["confidence"]
+        
+        # Determine purpose and use cases
+        purpose_data = cls._analyze_purpose(website_type["type"], content_analysis)
+        result["purpose"] = purpose_data["purpose"]
+        result["use_cases"] = purpose_data["use_cases"]
+        
+        # Analyze compliance requirements
+        compliance = cls._analyze_compliance(website_type["type"], content_analysis)
+        result["compliance_requirements"] = compliance["requirements"]
+        result["jurisdictions"] = compliance["jurisdictions"]
+        result["risk_level"] = compliance["risk_level"]
+        result["recommendations"] = compliance["recommendations"]
+        
+        return result
+    
+    @classmethod
+    def _detect_website_type(cls, url: str, content_analysis: Dict, html_content: str) -> Dict:
+        """Detect website type based on content analysis"""
+        scores = {site_type: 0 for site_type in cls.TYPE_INDICATORS}
+        max_score = 0
+        
+        # Check keywords in title and description
+        title = (content_analysis.get("title") or "").lower()
+        description = (content_analysis.get("description") or "").lower()
+        text_content = f"{title} {description}"
+        
+        # Check server indicators if available
+        server = (content_analysis.get("server") or "").lower()
+        
+        for site_type, indicators in cls.TYPE_INDICATORS.items():
+            # Keyword matching
+            for keyword in indicators["keywords"]:
+                if keyword in text_content:
+                    scores[site_type] += 2
+                if keyword in html_content.lower():
+                    scores[site_type] += 1
+            
+            # Path matching in URL
+            for path in indicators["paths"]:
+                if path in url.lower():
+                    scores[site_type] += 3
+        
+        # Special checks for HTML content
+        soup = BeautifulSoup(html_content, 'html.parser') if html_content else None
+        if soup:
+            for site_type, indicators in cls.TYPE_INDICATORS.items():
+                for selector in indicators["selectors"]:
+                    try:
+                        if soup.select(selector):
+                            scores[site_type] += 2
+                    except:
+                        pass
+        
+        # Determine best match
+        if scores:
+            best_match = max(scores, key=scores.get)
+            max_score = scores[best_match]
+            
+            # Calculate confidence
+            if max_score >= 10:
+                confidence = "high"
+            elif max_score >= 5:
+                confidence = "medium"
+            else:
+                confidence = "low"
+                best_match = "general"
+            
+            return {"type": best_match, "confidence": confidence, "scores": scores}
+        
+        return {"type": "general", "confidence": "low", "scores": scores}
+    
+    @classmethod
+    def _analyze_purpose(cls, website_type: str, content_analysis: Dict) -> Dict:
+        """Analyze website purpose and use cases"""
+        purposes = {
+            "ecommerce": {
+                "purpose": "在线商品销售平台，为商家和消费者提供交易服务",
+                "use_cases": [
+                    "B2C 零售销售",
+                    "B2B 批发交易", 
+                    "数字商品销售",
+                    "订阅服务",
+                    "跨境电子商务"
+                ]
+            },
+            "social_media": {
+                "purpose": "社交媒体平台，促进用户之间的内容分享和互动",
+                "use_cases": [
+                    "个人社交互动",
+                    "内容创作者变现",
+                    "品牌推广和营销",
+                    "社群运营",
+                    "实时通讯"
+                ]
+            },
+            "content_platform": {
+                "purpose": "内容发布和分发平台，提供信息、新闻或教育内容",
+                "use_cases": [
+                    "新闻资讯发布",
+                    "博客和文章分享",
+                    "教育资源分发",
+                    "行业报告和研究",
+                    "多媒体内容托管"
+                ]
+            },
+            "saas_platform": {
+                "purpose": "软件即服务平台，为企业提供云端软件解决方案",
+                "use_cases": [
+                    "企业生产力工具",
+                    "数据分析和可视化",
+                    "项目管理",
+                    "客户关系管理 (CRM)",
+                    "API 服务提供"
+                ]
+            },
+            "educational": {
+                "purpose": "在线教育平台，提供课程、培训和认证服务",
+                "use_cases": [
+                    "在线课程学习",
+                    "职业培训",
+                    "学术认证",
+                    "企业内训",
+                    "技能测评"
+                ]
+            },
+            "healthcare": {
+                "purpose": "医疗健康服务平台，提供医疗咨询、预约和健康管理",
+                "use_cases": [
+                    "在线医疗咨询",
+                    "预约挂号服务",
+                    "健康档案管理",
+                    "远程诊疗",
+                    "药品配送"
+                ]
+            },
+            "financial": {
+                "purpose": "金融服务平台，提供投资、交易、借贷等金融服务",
+                "use_cases": [
+                    "股票和加密货币交易",
+                    "支付和转账服务",
+                    "投资理财",
+                    "贷款和信贷",
+                    "保险服务"
+                ]
+            },
+            "marketplace": {
+                "purpose": "在线市场平台，连接买家和卖家促成交易",
+                "use_cases": [
+                    "C2C 个人交易",
+                    "B2C 商家入驻",
+                    "服务外包平台",
+                    "二手物品交易",
+                    "拍卖和竞价"
+                ]
+            },
+            "gaming": {
+                "purpose": "游戏娱乐平台，提供在线游戏和竞技服务",
+                "use_cases": [
+                    "在线多人游戏",
+                    "电竞比赛",
+                    "游戏直播",
+                    "虚拟物品交易",
+                    "社交游戏平台"
+                ]
+            },
+            "general": {
+                "purpose": "通用信息展示网站，提供企业或个人信息展示",
+                "use_cases": [
+                    "企业官网展示",
+                    "个人作品集",
+                    "信息门户",
+                    "品牌推广",
+                    "联系和咨询"
+                ]
+            }
+        }
+        
+        return purposes.get(website_type, purposes["general"])
+    
+    @classmethod
+    def _analyze_compliance(cls, website_type: str, content_analysis: Dict) -> Dict:
+        """Analyze compliance requirements based on website type"""
+        result = {
+            "requirements": [],
+            "jurisdictions": [],
+            "risk_level": "low",
+            "recommendations": []
+        }
+        
+        # Base compliance for all websites
+        base_requirements = [
+            {
+                "regulation": "隐私政策",
+                "description": "必须提供清晰的隐私政策，说明数据收集和使用方式",
+                "jurisdictions": ["全球"],
+                "priority": "high"
+            },
+            {
+                "regulation": "Cookie 合规",
+                "description": "需获得用户同意后才能使用非必要 Cookie",
+                "jurisdictions": ["欧盟 (GDPR)", "英国"],
+                "priority": "medium"
+            },
+            {
+                "regulation": "网站可访问性",
+                "description": "遵循 WCAG 标准，确保残障用户可访问",
+                "jurisdictions": ["美国 (ADA)", "欧盟"],
+                "priority": "medium"
+            }
+        ]
+        
+        result["requirements"].extend(base_requirements)
+        
+        # Type-specific compliance
+        type_compliance = {
+            "ecommerce": {
+                "requirements": [
+                    {
+                        "regulation": "消费者权益保护",
+                        "description": "提供明确的退货政策、价格透明、合同条款",
+                        "jurisdictions": ["欧盟", "美国", "中国"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "支付卡行业数据安全标准 (PCI DSS)",
+                        "description": "处理信用卡数据需符合 PCI DSS 要求",
+                        "jurisdictions": ["全球"],
+                        "priority": "critical"
+                    },
+                    {
+                        "regulation": "产品安全合规",
+                        "description": "销售产品需符合目标市场的安全标准",
+                        "jurisdictions": ["欧盟 (CE)", "美国 (FCC/UL)", "中国 (CCC)"],
+                        "priority": "high"
+                    }
+                ],
+                "jurisdictions": ["欧盟", "美国", "中国", "日本"],
+                "risk_level": "high",
+                "recommendations": [
+                    "实施 SSL/TLS 加密保护支付数据",
+                    "提供多语言用户协议和隐私政策",
+                    "建立客户争议解决机制",
+                    "定期进行安全漏洞扫描",
+                    "保存交易记录至少 5-7 年"
+                ]
+            },
+            "social_media": {
+                "requirements": [
+                    {
+                        "regulation": "GDPR 数据保护",
+                        "description": "用户有权删除账户和数据，数据 portability",
+                        "jurisdictions": ["欧盟", "英国", "瑞士"],
+                        "priority": "critical"
+                    },
+                    {
+                        "regulation": "内容审核责任",
+                        "description": "需建立内容审核机制，处理非法内容举报",
+                        "jurisdictions": ["欧盟 (DSA)", "美国 (Section 230)", "中国"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "儿童在线隐私保护 (COPPA)",
+                        "description": "收集 13 岁以下儿童数据需获得家长同意",
+                        "jurisdictions": ["美国", "英国 (Age Appropriate Design Code)"],
+                        "priority": "critical"
+                    }
+                ],
+                "jurisdictions": ["欧盟", "美国", "中国", "印度"],
+                "risk_level": "high",
+                "recommendations": [
+                    "实施年龄验证机制",
+                    "建立用户内容举报系统",
+                    "定期进行内容审核培训",
+                    "保存用户活动日志以满足法律要求",
+                    "实施数据最小化原则"
+                ]
+            },
+            "financial": {
+                "requirements": [
+                    {
+                        "regulation": "反洗钱 (AML)",
+                        "description": "实施 KYC (了解你的客户) 程序，监控可疑交易",
+                        "jurisdictions": ["美国 (FinCEN)", "欧盟 (AMLD)", "中国"],
+                        "priority": "critical"
+                    },
+                    {
+                        "regulation": "金融监管许可",
+                        "description": "提供金融服务需获得相应牌照",
+                        "jurisdictions": ["美国 (SEC/CFTC)", "欧盟 (MiFID II)", "新加坡 (MAS)"],
+                        "priority": "critical"
+                    },
+                    {
+                        "regulation": "数据本地化",
+                        "description": "金融数据可能需要存储在特定司法管辖区",
+                        "jurisdictions": ["中国", "俄罗斯", "印度"],
+                        "priority": "high"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "英国", "新加坡", "香港", "中国"],
+                "risk_level": "critical",
+                "recommendations": [
+                    "获得必要的金融服务牌照",
+                    "实施强大的身份验证系统",
+                    "建立交易监控系统",
+                    "定期进行合规审计",
+                    "实施数据加密和隔离",
+                    "建立业务连续性计划"
+                ]
+            },
+            "healthcare": {
+                "requirements": [
+                    {
+                        "regulation": "健康数据保护 (HIPAA)",
+                        "description": "保护患者健康信息的隐私和安全",
+                        "jurisdictions": ["美国"],
+                        "priority": "critical"
+                    },
+                    {
+                        "regulation": "GDPR 特殊类别数据",
+                        "description": "健康数据属于敏感数据，需额外保护",
+                        "jurisdictions": ["欧盟", "英国"],
+                        "priority": "critical"
+                    },
+                    {
+                        "regulation": "医疗器械监管",
+                        "description": "健康类 App 可能被归类为医疗器械",
+                        "jurisdictions": ["美国 (FDA)", "欧盟 (MDR)"],
+                        "priority": "high"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "中国", "日本"],
+                "risk_level": "critical",
+                "recommendations": [
+                    "实施端到端加密",
+                    "建立严格的访问控制",
+                    "获得医疗数据保护认证",
+                    "进行定期的安全评估",
+                    "建立数据泄露响应计划"
+                ]
+            },
+            "saas_platform": {
+                "requirements": [
+                    {
+                        "regulation": "SOC 2 合规",
+                        "description": "服务组织控制报告，证明安全控制有效性",
+                        "jurisdictions": ["全球"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "ISO 27001",
+                        "description": "信息安全管理体系认证",
+                        "jurisdictions": ["全球"],
+                        "priority": "medium"
+                    },
+                    {
+                        "regulation": "数据跨境传输",
+                        "description": "遵守数据本地化或跨境传输规则",
+                        "jurisdictions": ["欧盟", "中国", "俄罗斯"],
+                        "priority": "high"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "中国"],
+                "risk_level": "medium",
+                "recommendations": [
+                    "实施零信任安全架构",
+                    "建立供应商安全管理计划",
+                    "定期进行渗透测试",
+                    "实施数据备份和恢复策略",
+                    "建立客户数据处理协议 (DPA)"
+                ]
+            },
+            "content_platform": {
+                "requirements": [
+                    {
+                        "regulation": "版权保护 (DMCA)",
+                        "description": "建立版权投诉处理机制",
+                        "jurisdictions": ["美国", "欧盟"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "虚假信息治理",
+                        "description": "需建立事实核查和内容标注机制",
+                        "jurisdictions": ["欧盟", "德国 (NetzDG)", "法国"],
+                        "priority": "medium"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "中国"],
+                "risk_level": "medium",
+                "recommendations": [
+                    "建立版权声明和投诉机制",
+                    "实施内容来源标注",
+                    "建立编辑政策公开透明",
+                    "定期进行版权合规审查"
+                ]
+            },
+            "educational": {
+                "requirements": [
+                    {
+                        "regulation": "FERPA (家庭教育权利和隐私法)",
+                        "description": "保护学生教育记录隐私",
+                        "jurisdictions": ["美国"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "教育资质认证",
+                        "description": "提供学位或认证需获得教育资质",
+                        "jurisdictions": ["各国教育部门"],
+                        "priority": "high"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "中国"],
+                "risk_level": "medium",
+                "recommendations": [
+                    "获得相关教育资质认证",
+                    "建立学生数据保护政策",
+                    "实施学习成果评估体系",
+                    "确保课程内容版权合规"
+                ]
+            },
+            "gaming": {
+                "requirements": [
+                    {
+                        "regulation": "年龄分级系统",
+                        "description": "游戏内容需进行年龄分级",
+                        "jurisdictions": ["美国 (ESRB)", "欧盟 (PEGI)", "中国"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "游戏防沉迷",
+                        "description": "对未成年玩家实施游戏时间限制",
+                        "jurisdictions": ["中国"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "博彩监管",
+                        "description": "含赌博元素需获得博彩牌照",
+                        "jurisdictions": ["各国博彩监管机构"],
+                        "priority": "critical"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "中国", "韩国", "日本"],
+                "risk_level": "high",
+                "recommendations": [
+                    "实施年龄验证系统",
+                    "建立游戏内容分级",
+                    "对未成年玩家实施限制",
+                    "确保虚拟物品交易合规",
+                    "建立玩家申诉机制"
+                ]
+            },
+            "marketplace": {
+                "requirements": [
+                    {
+                        "regulation": "平台责任",
+                        "description": "对平台上的交易承担连带责任",
+                        "jurisdictions": ["欧盟 (DSA/DMA)", "美国", "中国"],
+                        "priority": "high"
+                    },
+                    {
+                        "regulation": "卖家资质审核",
+                        "description": "需验证平台卖家身份和资质",
+                        "jurisdictions": ["美国 (INFORM Consumers Act)", "欧盟"],
+                        "priority": "high"
+                    }
+                ],
+                "jurisdictions": ["美国", "欧盟", "中国"],
+                "risk_level": "medium",
+                "recommendations": [
+                    "建立卖家 KYC 流程",
+                    "实施交易担保机制",
+                    "建立争议解决系统",
+                    "定期审核卖家资质",
+                    "保存交易记录备查"
+                ]
+            }
+        }
+        
+        if website_type in type_compliance:
+            compliance = type_compliance[website_type]
+            result["requirements"].extend(compliance["requirements"])
+            result["jurisdictions"] = compliance["jurisdictions"]
+            result["risk_level"] = compliance["risk_level"]
+            result["recommendations"] = compliance["recommendations"]
+        
+        return result
 
 
 class ContentAnalyzer:
@@ -419,6 +1066,18 @@ class WebsiteScanner:
         print("  🔎 Checking Google index...")
         self.result.third_party["google_index"] = ThirdPartyAnalyzer.check_google_index(self.domain)
         
+        # 7. Compliance Analysis
+        print("  ⚖️  Analyzing compliance requirements...")
+        html_content = ""
+        try:
+            resp = requests.get(self.url, timeout=30)
+            html_content = resp.text
+        except:
+            pass
+        self.result.compliance_analysis = ComplianceAnalyzer.analyze(
+            self.url, self.result.content_analysis, html_content
+        )
+
         # 7. Deep scan
         if self.deep_scan and self.result.sitemap_data.get("urls"):
             print(f"  🔬 Deep scanning...")
