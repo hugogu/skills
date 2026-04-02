@@ -106,27 +106,32 @@ mutation {
 
 ## Python Example
 
-```python
-import requests
-import json
+Always use GraphQL Variables — never interpolate content strings directly into queries.
 
-WIKI_URL = "https://your-wiki-instance.com/graphql"
-WIKI_KEY = "your-api-key"
+```python
+import json
+import os
+import requests
+
+WIKI_URL = os.environ["WIKI_URL"]   # e.g. https://your-wiki.example.com/graphql
+WIKI_KEY = os.environ["WIKI_KEY"]
 
 def create_page(title, content, path, description="", tags=None):
-    query = """
-    mutation {
+    query = '''
+    mutation CreatePage($content: String!, $title: String!,
+                        $path: String!, $description: String!,
+                        $tags: [String]!) {
       pages {
         create(
-          content: %s
-          description: %s
+          content: $content
+          description: $description
           editor: "markdown"
           isPublished: true
           isPrivate: false
           locale: "zh"
-          path: %s
-          tags: %s
-          title: %s
+          path: $path
+          tags: $tags
+          title: $title
         ) {
           page {
             id
@@ -136,21 +141,21 @@ def create_page(title, content, path, description="", tags=None):
         }
       }
     }
-    """ % (
-        json.dumps(content),
-        json.dumps(description),
-        json.dumps(path),
-        json.dumps(tags or []),
-        json.dumps(title)
-    )
-    
+    '''
+    variables = {
+        "content": content,
+        "title": title,
+        "path": path,
+        "description": description,
+        "tags": tags or []
+    }
     response = requests.post(
         WIKI_URL,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {WIKI_KEY}"
         },
-        json={"query": query}
+        data=json.dumps({"query": query, "variables": variables})
     )
     return response.json()
 ```

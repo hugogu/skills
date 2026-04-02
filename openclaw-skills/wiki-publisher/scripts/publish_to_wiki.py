@@ -1,27 +1,69 @@
 #!/usr/bin/env python3
 """
-Wiki Publisher Script - 发布内容到 Wiki.js
- Usage: python3 publish_to_wiki.py <file.md> <path> [title] [description]
+Wiki Publisher Script - Publish markdown content to Wiki.js via GraphQL API.
+
+Usage:
+  python3 publish_to_wiki.py publish <file.md> --path <wiki/path> [--title <title>] [--description <desc>] [--tags tag1,tag2]
+  python3 publish_to_wiki.py list
 """
 
-import os
-import sys
+import argparse
 import json
+import os
+import re
+import sys
+
 import requests
 
-WIKI_URL = "https://wiki.hugogu.cn/graphql"
-WIKI_KEY = os.environ.get("WIKI_KEY")
 
-def create_wiki_page(content: str, title: str, path: str, 
-                     description: str = "", tags: list = None) -> dict:
-    """
-    Create a Wiki.js page using GraphQL API.
-    """
-    # FIXED: tags type changed from [String!] to [String]!
+def get_wiki_config():
+    """Get wiki configuration from environment variables."""
+    wiki_key = os.environ.get("WIKI_KEY")
+    wiki_url = os.environ.get("WIKI_URL")
+
+    if not wiki_key:
+        print("Error: WIKI_KEY environment variable not set", file=sys.stderr)
+        sys.exit(1)
+    if not wiki_url:
+        print("Error: WIKI_URL environment variable not set (e.g. https://your-wiki.example.com/graphql)", file=sys.stderr)
+        sys.exit(1)
+
+    return wiki_url, wiki_key
+
+
+def clean_content(content: str) -> str:
+    """Remove YAML frontmatter from markdown content."""
+    pattern = r'^---\s*\n.*?\n---\s*\n'
+    return re.sub(pattern, '', content, flags=re.DOTALL).strip()
+
+
+def extract_title(content: str, fallback: str) -> str:
+    """Extract title from first H1 heading, or use fallback."""
+    for line in content.split('\n'):
+        if line.startswith('# '):
+            return line[2:].strip()
+    return fallback
+
+
+def _post(wiki_url: str, wiki_key: str, payload: str) -> dict:
+    response = requests.post(
+        wiki_url,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {wiki_key}"
+        },
+        data=payload
+    )
+    return response.json()
+
+
+def create_page(wiki_url: str, wiki_key: str, content: str, title: str,
+                path: str, description: str = "", tags: list = None) -> dict:
+    """Create a new Wiki.js page using GraphQL Variables."""
     query = '''
-    mutation CreatePage($content: String!, $title: String!, 
-                       $path: String!, $description: String!, 
-                       $tags: [String]!) {
+    mutation CreatePage($content: String!, $title: String!,
+                        $path: String!, $description: String!,
+                        $tags: [String]!) {
       pages {
         create(
           content: $content
@@ -43,7 +85,6 @@ def create_wiki_page(content: str, title: str, path: str,
       }
     }
     '''
-    
     variables = {
         "content": content,
         "title": title,
@@ -51,34 +92,19 @@ def create_wiki_page(content: str, title: str, path: str,
         "description": description or title,
         "tags": tags or []
     }
-    
-    payload = json.dumps({
-        "query": query,
-        "variables": variables
-    })
-    
-    response = requests.post(
-        WIKI_URL,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {WIKI_KEY}"
-        },
-        data=payload
-    )
-    
-    return response.json()
+    return _post(wiki_url, wiki_key, json.dumps({"query": query, "variables": variables}))
 
 
-def update_wiki_page(page_id: int, content: str, description: str = "") -> dict:
-    """
-    Update an existing Wiki.js page.
-    """
+def update_page(wiki_url: str, wiki_key: str, page_id: int, content: str,
+                title: str, description: str = "") -> dict:
+    """Update an existing Wiki.js page using GraphQL Variables."""
     query = '''
-    mutation UpdatePage($id: Int!, $content: String!, $description: String!) {
+    mutation UpdatePage($id: Int!, $content: String!, $title: String!, $description: String!) {
       pages {
         update(
           id: $id
           content: $content
+          title: $title
           description: $description
           editor: "markdown"
         ) {
@@ -91,34 +117,17 @@ def update_wiki_page(page_id: int, content: str, description: str = "") -> dict:
       }
     }
     '''
-    
     variables = {
         "id": page_id,
         "content": content,
+        "title": title,
         "description": description
     }
-    
-    payload = json.dumps({
-        "query": query,
-        "variables": variables
-    })
-    
-    response = requests.post(
-        WIKI_URL,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {WIKI_KEY}"
-        },
-        data=payload
-    )
-    
-    return response.json()
+    return _post(wiki_url, wiki_key, json.dumps({"query": query, "variables": variables}))
 
 
-def get_page_by_path(path: str) -> dict:
-    """
-    Check if a page exists by path.
-    """
+def get_page_by_path(wiki_url: str, wiki_key: str, path: str) -> dict:
+    """Check if a page exists by path. Returns page dict or None."""
     query = '''
     query GetPage($path: String!) {
       pages {
@@ -130,83 +139,85 @@ def get_page_by_path(path: str) -> dict:
       }
     }
     '''
-    
-    variables = {"path": path}
-    
-    payload = json.dumps({
-        "query": query,
-        "variables": variables
-    })
-    
-    response = requests.post(
-        WIKI_URL,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {WIKI_KEY}"
-        },
-        data=payload
-    )
-    
-    result = response.json()
-    if result.get("data") and result["data"].get("pages") and result["data"]["pages"].get("singleByPath"):
+    result = _post(wiki_url, wiki_key, json.dumps({"query": query, "variables": {"path": path}}))
+    try:
         return result["data"]["pages"]["singleByPath"]
-    return None
+    except (KeyError, TypeError):
+        return None
+
+
+def list_pages(wiki_url: str, wiki_key: str) -> dict:
+    """List all wiki pages."""
+    query = '''
+    query {
+      pages {
+        list {
+          id
+          path
+          title
+          description
+        }
+      }
+    }
+    '''
+    return _post(wiki_url, wiki_key, json.dumps({"query": query}))
+
+
+def cmd_publish(args, wiki_url, wiki_key):
+    try:
+        with open(args.file, 'r', encoding='utf-8') as f:
+            raw_content = f.read()
+    except FileNotFoundError:
+        print(f"Error: File not found: {args.file}", file=sys.stderr)
+        sys.exit(1)
+
+    content = clean_content(raw_content)
+    title = args.title or extract_title(content, os.path.basename(args.file))
+    tags = [t.strip() for t in args.tags.split(',')] if args.tags else []
+
+    existing_page = get_page_by_path(wiki_url, wiki_key, args.path)
+
+    if existing_page:
+        print(f"Page exists (ID: {existing_page['id']}), updating...")
+        result = update_page(wiki_url, wiki_key, existing_page['id'], content, title, args.description or "")
+        page = result.get("data", {}).get("pages", {}).get("update", {}).get("page")
+        if page:
+            print(f"✅ Updated: {wiki_url.replace('/graphql', '')}/{page['path']}")
+        else:
+            print(f"❌ Update failed: {result}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"Creating new page at path: {args.path}")
+        result = create_page(wiki_url, wiki_key, content, title, args.path, args.description or "", tags)
+        page = result.get("data", {}).get("pages", {}).get("create", {}).get("page")
+        if page:
+            print(f"✅ Created: {wiki_url.replace('/graphql', '')}/{page['path']}")
+        else:
+            print(f"❌ Create failed: {result}", file=sys.stderr)
+            sys.exit(1)
 
 
 def main():
-    if not WIKI_KEY:
-        print("Error: WIKI_KEY environment variable not set")
-        sys.exit(1)
-    
-    if len(sys.argv) < 3:
-        print("Usage: python3 publish_to_wiki.py <file.md> <path> [title] [description]")
-        print("Example: python3 publish_to_wiki.py article.md tech/security/guide '安全指南'")
-        sys.exit(1)
-    
-    file_path = sys.argv[1]
-    wiki_path = sys.argv[2]
-    title = sys.argv[3] if len(sys.argv) > 3 else None
-    description = sys.argv[4] if len(sys.argv) > 4 else ""
-    
-    # Read content
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-    except FileNotFoundError:
-        print(f"Error: File not found: {file_path}")
-        sys.exit(1)
-    
-    # Extract title from content if not provided
-    if not title:
-        lines = content.split('\n')
-        for line in lines:
-            if line.startswith('# '):
-                title = line[2:].strip()
-                break
-        if not title:
-            title = os.path.basename(file_path)
-    
-    # Check if page exists
-    existing_page = get_page_by_path(wiki_path)
-    
-    if existing_page:
-        print(f"Page exists (ID: {existing_page['id']}), updating...")
-        result = update_wiki_page(existing_page['id'], content, description)
-        if result.get("data") and result["data"].get("pages") and result["data"]["pages"].get("update"):
-            page = result["data"]["pages"]["update"]["page"]
-            print(f"✅ Updated: https://wiki.hugogu.cn/{page['path']}")
-        else:
-            print(f"❌ Update failed: {result}")
-            sys.exit(1)
-    else:
-        print(f"Creating new page at path: {wiki_path}")
-        result = create_wiki_page(content, title, wiki_path, description)
-        if result.get("data") and result["data"].get("pages") and result["data"]["pages"].get("create"):
-            page = result["data"]["pages"]["create"]["page"]
-            print(f"✅ Created: https://wiki.hugogu.cn/{page['path']}")
-        else:
-            print(f"❌ Create failed: {result}")
-            sys.exit(1)
+    parser = argparse.ArgumentParser(description='Publish markdown content to Wiki.js')
+    subparsers = parser.add_subparsers(dest='action', required=True)
+
+    pub = subparsers.add_parser('publish', help='Create or update a wiki page')
+    pub.add_argument('file', help='Markdown file to publish')
+    pub.add_argument('--path', '-p', required=True, help='Wiki page path (e.g. tech/security/guide)')
+    pub.add_argument('--title', '-t', help='Page title (auto-extracted from H1 if not set)')
+    pub.add_argument('--description', '-d', help='Page description')
+    pub.add_argument('--tags', help='Comma-separated tags (e.g. "k8s,security")')
+
+    subparsers.add_parser('list', help='List all wiki pages')
+
+    args = parser.parse_args()
+    wiki_url, wiki_key = get_wiki_config()
+
+    if args.action == 'publish':
+        cmd_publish(args, wiki_url, wiki_key)
+    elif args.action == 'list':
+        result = list_pages(wiki_url, wiki_key)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -125,7 +125,7 @@ payload = json.dumps({
 })
 
 response = requests.post(
-    "https://wiki.hugogu.cn/graphql",
+    WIKI_URL,
     headers={
         "Content-Type": "application/json",
         "Authorization": f"Bearer {WIKI_KEY}"
@@ -142,7 +142,7 @@ response = requests.post(
 ### Create Page
 
 ```graphql
-mutation CreatePage($content: String!, $title: String!, $path: String!, $description: String!, $tags: [String!]) {
+mutation CreatePage($content: String!, $title: String!, $path: String!, $description: String!, $tags: [String]!) {
   pages {
     create(
       content: $content
@@ -181,7 +181,7 @@ mutation CreatePage($content: String!, $title: String!, $path: String!, $descrip
 - `$title`: `String!` - Required
 - `$path`: `String!` - Required, URL path
 - `$description`: `String!` - Required
-- `$tags`: `[String!]` - Optional array of non-null strings
+- `$tags`: `[String]!` - Required non-null array (elements may be null)
 
 ### Update Page
 
@@ -299,7 +299,7 @@ Suggest paths based on content type:
 2. **Clean formatting** - Remove YAML frontmatter if present
 3. **Suggest metadata** - Propose path, tags, description
 4. **Confirm with user** - Show proposed wiki location
-5. **Publish** - Execute GraphQL mutation using **Variables**
+5. **Publish** - Run `{baseDir}/scripts/publish_to_wiki.py publish <file.md> --path <wiki/path>` or execute GraphQL mutation directly using **Variables**
 6. **Return link** - Provide wiki page URL
 
 ## Error Handling
@@ -307,19 +307,19 @@ Suggest paths based on content type:
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `ValidationError: Variable $content... invalid value` | String escaping issue | Use Variables + json.dumps |
-| `GraphQLError: Variable $tags of type [String]` | Tags type mismatch | Use `[String!]` not `[String]` |
+| `GraphQLError: Variable $tags of type [String!]` | Tags type mismatch | Use `[String]!` not `[String!]` (Wiki.js expects non-null array, elements can be null) |
 | `Unauthorized` | Invalid API key | Check WIKI_KEY env var |
 | `Page already exists` | Path conflict | Use update mutation or different path |
 
 ## Example: Complete Python Implementation
 
 ```python
-import os
 import json
+import os
 import requests
 
-WIKI_URL = "https://wiki.hugogu.cn/graphql"
-WIKI_KEY = os.environ.get("WIKI_KEY")
+WIKI_URL = os.environ["WIKI_URL"]   # e.g. https://your-wiki.example.com/graphql
+WIKI_KEY = os.environ["WIKI_KEY"]
 
 def create_wiki_page(content: str, title: str, path: str, 
                      description: str = "", tags: list = None) -> dict:
@@ -339,7 +339,7 @@ def create_wiki_page(content: str, title: str, path: str,
     query = '''
     mutation CreatePage($content: String!, $title: String!, 
                        $path: String!, $description: String!, 
-                       $tags: [String!]) {
+                       $tags: [String]!) {
       pages {
         create(
           content: $content
@@ -398,7 +398,8 @@ result = create_wiki_page(
     tags=["网络安全", "爬虫"]
 )
 
-print(f"Created: https://wiki.hugogu.cn/{result['data']['pages']['create']['page']['path']}")
+base_url = WIKI_URL.replace('/graphql', '')
+print(f"Created: {base_url}/{result['data']['pages']['create']['page']['path']}")
 ```
 
 ## Reference
