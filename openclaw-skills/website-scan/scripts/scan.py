@@ -568,87 +568,301 @@ Found {len(r.metadata.get('json_ld_schemas', []))} schema(s)
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def generate_pdf_report(self, filename: str):            json.dump(data, f, indent=2, ensure_ascii=False)
 
     def generate_pdf_report(self, filename: str):
-        """Generate PDF report"""
+        """Generate comprehensive PDF report with all scan data"""
         try:
             from reportlab.lib import colors
             from reportlab.lib.pagesizes import A4
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Preformatted
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import inch
             
-            doc = SimpleDocTemplate(filename, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+            doc = SimpleDocTemplate(filename, pagesize=A4, rightMargin=60, leftMargin=60, topMargin=60, bottomMargin=18)
             styles = getSampleStyleSheet()
             story = []
             
+            # Helper function to create styled tables
+            def create_table(data, col_widths=None, header_bg=colors.HexColor('#1a73e8')):
+                if col_widths is None:
+                    col_widths = [2*inch, 4.5*inch]
+                table = Table(data, colWidths=col_widths)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f5f5f5')),
+                    ('BACKGROUND', (0, 0), (-1, 0), header_bg) if len(data) > 0 and data[0][0] != 'IPv4' else None,
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke) if len(data) > 0 and data[0][0] != 'IPv4' else None,
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold') if len(data) > 0 and data[0][0] != 'IPv4' else None,
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                return table
+            
             # Title
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, spaceAfter=30, textColor=colors.HexColor('#1a73e8'))
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=28, spaceAfter=20, textColor=colors.HexColor('#1a73e8'))
             story.append(Paragraph("Website Scan Report", title_style))
             story.append(Paragraph(f"<b>{self.result.domain}</b>", styles['Heading2']))
-            story.append(Paragraph(f"Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            story.append(Spacer(1, 0.3*inch))
+            story.append(Paragraph(f"Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Target: {self.result.url}", styles['Normal']))
+            story.append(Spacer(1, 0.25*inch))
             
-            # IP Info
-            story.append(Paragraph("<b>IP & Network Information</b>", styles['Heading2']))
-            ip_data = [['IPv4', ', '.join(self.result.ip_info.get('ipv4', ['N/A']))[:80]]]
-            if self.result.ip_info.get('ipv6'):
-                ip_data.append(['IPv6', ', '.join(self.result.ip_info.get('ipv6', []))[:80]])
+            # ============================================
+            # 1. IP & NETWORK INFORMATION
+            # ============================================
+            story.append(Paragraph("<b>1. IP & Network Information</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
+            
+            ip_data = []
+            # IPv4 addresses
+            ipv4_list = self.result.ip_info.get('ipv4', [])
+            ip_data.append(['IPv4 Addresses', ', '.join(ipv4_list) if ipv4_list else 'N/A'])
+            
+            # IPv6 addresses
+            ipv6_list = self.result.ip_info.get('ipv6', [])
+            ip_data.append(['IPv6 Addresses', ', '.join(ipv6_list) if ipv6_list else 'N/A'])
+            
+            # Geolocation
             geo = self.result.ip_info.get('geolocation', {})
             if geo:
-                ip_data.extend([['Location', f"{geo.get('city', '')}, {geo.get('country', '')}"], ['Org', geo.get('org', 'N/A')]])
+                ip_data.extend([
+                    ['City', geo.get('city', 'N/A')],
+                    ['Region', geo.get('region', 'N/A')],
+                    ['Country', f"{geo.get('country', 'N/A')} ({geo.get('country_code', 'N/A')})"],
+                    ['Latitude', str(geo.get('latitude', 'N/A'))],
+                    ['Longitude', str(geo.get('longitude', 'N/A'))],
+                    ['Organization', geo.get('org', 'N/A')],
+                    ['ASN', str(geo.get('asn', 'N/A'))],
+                    ['Timezone', geo.get('timezone', 'N/A')],
+                ])
             
-            ip_table = Table(ip_data, colWidths=[2*inch, 4*inch])
-            ip_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')), ('GRID', (0, 0), (-1, -1), 1, colors.grey)]))
-            story.append(ip_table)
+            story.append(create_table(ip_data))
             story.append(Spacer(1, 0.2*inch))
             
-            # DNS
-            story.append(Paragraph("<b>DNS Records</b>", styles['Heading3']))
-            dns_data = [['Type', 'Values']]
-            for rt, vals in self.result.dns_info.items():
-                if vals and not str(vals[0]).startswith("Error"):
-                    dns_data.append([rt, ', '.join(vals[:2])[:50]])
+            # ============================================
+            # 2. DNS RECORDS
+            # ============================================
+            story.append(Paragraph("<b>2. DNS Records</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
+            
+            dns_data = [['Record Type', 'Values']]
+            for record_type in ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA']:
+                values = self.result.dns_info.get(record_type, [])
+                if values and not str(values[0]).startswith("Error"):
+                    # Join all values with line breaks for better readability
+                    formatted_values = '\n'.join(values[:5])  # Limit to 5 entries
+                    if len(values) > 5:
+                        formatted_values += f"\n... ({len(values) - 5} more)"
+                    dns_data.append([record_type, formatted_values])
+                elif values and str(values[0]).startswith("Error"):
+                    dns_data.append([record_type, values[0]])
+            
             if len(dns_data) > 1:
-                dns_table = Table(dns_data, colWidths=[1.5*inch, 4.5*inch])
-                dns_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a73e8')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('GRID', (0, 0), (-1, -1), 1, colors.grey)]))
-                story.append(dns_table)
+                story.append(create_table(dns_data, col_widths=[1.2*inch, 5.3*inch]))
+            else:
+                story.append(Paragraph("No DNS records found.", styles['Normal']))
             story.append(PageBreak())
             
-            # WHOIS
-            story.append(Paragraph("<b>WHOIS Information</b>", styles['Heading2']))
-            whois_data = [['Registrar', self.result.whois_info.get('registrar', 'N/A')], ['Created', self.result.whois_info.get('creation_date', 'N/A')], ['Expires', self.result.whois_info.get('expiration_date', 'N/A')]]
-            whois_table = Table(whois_data, colWidths=[2*inch, 4*inch])
-            whois_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')), ('GRID', (0, 0), (-1, -1), 1, colors.grey)]))
-            story.append(whois_table)
-            story.append(Spacer(1, 0.3*inch))
+            # ============================================
+            # 3. WHOIS INFORMATION
+            # ============================================
+            story.append(Paragraph("<b>3. WHOIS Domain Information</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
             
-            # Content
-            story.append(Paragraph("<b>Content Analysis</b>", styles['Heading2']))
+            whois = self.result.whois_info
+            whois_data = [
+                ['Registrar', whois.get('registrar', 'N/A')],
+                ['Creation Date', whois.get('creation_date', 'N/A')],
+                ['Expiration Date', whois.get('expiration_date', 'N/A')],
+                ['Registrant Organization', whois.get('registrant_org', 'N/A')],
+                ['Registrant Country', whois.get('registrant_country', 'N/A')],
+                ['Domain Status', '\n'.join(whois.get('status', ['N/A']))[:200]],
+                ['Name Servers', '\n'.join(whois.get('name_servers', ['N/A']))[:200]],
+            ]
+            story.append(create_table(whois_data))
+            story.append(Spacer(1, 0.25*inch))
+            
+            # ============================================
+            # 4. CONTENT ANALYSIS
+            # ============================================
+            story.append(Paragraph("<b>4. Content Analysis</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
+            
             c = self.result.content_analysis
-            content_data = [['Title', (c.get('title') or 'N/A')[:50]], ['Description', ((c.get('description') or 'N/A'))[:80]], ['Links', str(c.get('links', {}).get('total', 0))], ['Images', str(c.get('images', {}).get('total', 0))]]
-            content_table = Table(content_data, colWidths=[2*inch, 4*inch])
-            content_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')), ('GRID', (0, 0), (-1, -1), 1, colors.grey)]))
-            story.append(content_table)
-            story.append(Spacer(1, 0.3*inch))
             
-            # SEO
-            story.append(Paragraph("<b>SEO Analysis</b>", styles['Heading2']))
+            # Basic metadata
+            story.append(Paragraph("<b>4.1 Homepage Metadata</b>", styles['Heading3']))
+            meta_data = [
+                ['Status Code', str(c.get('status_code', 'N/A'))],
+                ['Content Type', c.get('content_type', 'N/A')],
+                ['Server', c.get('server', 'N/A')],
+                ['Title', (c.get('title') or 'N/A')[:80]],
+                ['Meta Description', ((c.get('description') or 'N/A'))[:120]],
+                ['Meta Keywords', (c.get('keywords') or 'N/A')[:80]],
+                ['Viewport', (c.get('viewport') or 'N/A')[:80]],
+                ['Language', c.get('lang', 'N/A')],
+            ]
+            story.append(create_table(meta_data))
+            story.append(Spacer(1, 0.15*inch))
+            
+            # Links analysis
+            story.append(Paragraph("<b>4.2 Links Analysis</b>", styles['Heading3']))
+            links = c.get('links', {})
+            links_data = [
+                ['Total Links', str(links.get('total', 0))],
+                ['Internal Links', str(links.get('internal', 0))],
+                ['External Links', str(links.get('external', 0))],
+            ]
+            story.append(create_table(links_data))
+            story.append(Spacer(1, 0.15*inch))
+            
+            # Images analysis
+            story.append(Paragraph("<b>4.3 Images Analysis</b>", styles['Heading3']))
+            images = c.get('images', {})
+            images_data = [
+                ['Total Images', str(images.get('total', 0))],
+                ['With Alt Text', str(images.get('with_alt', 0))],
+                ['Without Alt Text', str(images.get('without_alt', 0))],
+            ]
+            story.append(create_table(images_data))
+            story.append(Spacer(1, 0.15*inch))
+            
+            # Page resources
+            story.append(Paragraph("<b>4.4 Page Resources</b>", styles['Heading3']))
+            resources_data = [
+                ['JavaScript Files', str(c.get('scripts', 0))],
+                ['Stylesheets', str(c.get('stylesheets', 0))],
+            ]
+            story.append(create_table(resources_data))
+            story.append(Spacer(1, 0.15*inch))
+            
+            # Heading structure
+            story.append(Paragraph("<b>4.5 Heading Structure</b>", styles['Heading3']))
+            headings = c.get('heading_structure', {})
+            headings_data = [['Tag', 'Count']]
+            for i in range(1, 7):
+                count = headings.get(f'h{i}', 0)
+                headings_data.append([f'H{i}', str(count)])
+            story.append(create_table(headings_data, col_widths=[1.5*inch, 5*inch]))
+            story.append(PageBreak())
+            
+            # ============================================
+            # 5. STRUCTURED DATA
+            # ============================================
+            story.append(Paragraph("<b>5. Structured Data (JSON-LD)</b>", styles['Heading2']))
+            json_ld = self.result.metadata.get('json_ld_schemas', [])
+            story.append(Paragraph(f"Found <b>{len(json_ld)}</b> JSON-LD schema(s)", styles['Normal']))
+            if json_ld:
+                for i, schema in enumerate(json_ld[:3], 1):  # Show first 3 schemas
+                    story.append(Spacer(1, 0.1*inch))
+                    story.append(Paragraph(f"Schema {i}: @{schema.get('@context', 'N/A')} / {schema.get('@type', 'N/A')}", styles['Normal']))
+            story.append(Spacer(1, 0.25*inch))
+            
+            # ============================================
+            # 6. CRAWLER FILES
+            # ============================================
+            story.append(Paragraph("<b>6. Crawler Files</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
+            
+            # robots.txt
+            story.append(Paragraph("<b>6.1 robots.txt</b>", styles['Heading3']))
+            robots = self.result.robots_txt
+            if robots and not robots.startswith('Error') and not robots.startswith('Status'):
+                # Truncate and clean for PDF
+                robots_clean = robots[:1500].replace('<', '&lt;').replace('>', '&gt;')
+                story.append(Preformatted(robots_clean, styles['Code']))
+            else:
+                story.append(Paragraph(f"Status: {robots}", styles['Normal']))
+            story.append(Spacer(1, 0.15*inch))
+            
+            # llms.txt
+            story.append(Paragraph("<b>6.2 llms.txt</b>", styles['Heading3']))
+            llms = self.result.llms_txt
+            if llms and 'Not found' not in llms and not llms.startswith('Error'):
+                llms_clean = llms[:1000].replace('<', '&lt;').replace('>', '&gt;')
+                story.append(Preformatted(llms_clean, styles['Code']))
+            else:
+                story.append(Paragraph(f"Status: {llms}", styles['Normal']))
+            story.append(Spacer(1, 0.15*inch))
+            
+            # sitemap
+            story.append(Paragraph("<b>6.3 Sitemap</b>", styles['Heading3']))
+            sitemap = self.result.sitemap_data
+            sitemap_data = [
+                ['Found', 'Yes' if sitemap.get('found') else 'No'],
+                ['URL Count', str(sitemap.get('url_count', 0))],
+                ['Sitemap URL', sitemap.get('url', 'N/A')],
+            ]
+            story.append(create_table(sitemap_data))
+            story.append(PageBreak())
+            
+            # ============================================
+            # 7. SEO ANALYSIS
+            # ============================================
+            story.append(Paragraph("<b>7. SEO Analysis</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
+            
             score = self.result.seo_data.get('score', 0)
             score_color = colors.green if score >= 80 else colors.orange if score >= 60 else colors.red
-            story.append(Paragraph(f"Score: <font color='{score_color.hexval()}'><b>{score}/100</b></font>", styles['Heading3']))
-            for issue in self.result.seo_data.get('issues', []):
-                story.append(Paragraph(f"• {issue}", styles['Normal']))
+            story.append(Paragraph(f"SEO Score: <font color='{score_color.hexval()}' size='16'><b>{score}/100</b></font>", styles['Heading3']))
+            story.append(Spacer(1, 0.1*inch))
             
-            story.append(Spacer(1, 0.5*inch))
-            story.append(Paragraph("<i>Generated by Website Scanner</i>", styles['Normal']))
+            issues = self.result.seo_data.get('issues', [])
+            if issues:
+                story.append(Paragraph("<b>Issues Found:</b>", styles['Heading4']))
+                for issue in issues:
+                    story.append(Paragraph(f"• {issue}", styles['Normal']))
+            else:
+                story.append(Paragraph("<font color='green'>✓ No major SEO issues found!</font>", styles['Normal']))
+            story.append(Spacer(1, 0.25*inch))
+            
+            # ============================================
+            # 8. THIRD-PARTY DATA
+            # ============================================
+            story.append(Paragraph("<b>8. Third-Party Data</b>", styles['Heading2']))
+            story.append(Spacer(1, 0.1*inch))
+            
+            story.append(Paragraph("<b>8.1 Google Index Status</b>", styles['Heading3']))
+            google = self.result.third_party.get('google_index', {})
+            google_data = [
+                ['Indexed', str(google.get('indexed', 'Unknown'))],
+                ['Approximate Pages', str(google.get('approx_pages', 'Unknown'))],
+            ]
+            if google.get('error'):
+                google_data.append(['Error', google.get('error')])
+            story.append(create_table(google_data))
+            story.append(Spacer(1, 0.25*inch))
+            
+            # ============================================
+            # 9. DEEP SCAN RESULTS (if applicable)
+            # ============================================
+            if self.result.pages_scanned:
+                story.append(Paragraph("<b>9. Deep Scan Results</b>", styles['Heading2']))
+                story.append(Paragraph(f"Pages scanned: {len(self.result.pages_scanned)}", styles['Normal']))
+                for page in self.result.pages_scanned[:5]:  # Show first 5 pages
+                    url = page.get('url', 'N/A')
+                    status = page.get('status', page.get('error', 'N/A'))
+                    title = page.get('title', 'N/A')
+                    story.append(Paragraph(f"• {url[:60]}... (Status: {status})", styles['Normal']))
+                story.append(Spacer(1, 0.25*inch))
+            
+            # ============================================
+            # FOOTER
+            # ============================================
+            story.append(Spacer(1, 0.3*inch))
+            story.append(Paragraph("<i>Report generated by Website Scanner</i>", styles['Normal']))
             
             doc.build(story)
-            print(f"PDF saved: {filename}")
+            print(f"✅ PDF report saved: {filename}")
         except Exception as e:
-            print(f"PDF error: {e}")
-
+            print(f"❌ PDF generation error: {e}")
+            import traceback
+            traceback.print_exc()
 
 def main():
     parser = argparse.ArgumentParser(description='Comprehensive website scanner')
