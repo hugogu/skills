@@ -1,6 +1,7 @@
 ---
 name: wiki-publisher
 description: Publish markdown content to Wiki.js with proper formatting and metadata. Use when user wants to create or update wiki pages, convert notes/articles to wiki format, or publish content to a Wiki.js instance. Handles API authentication, content formatting (removing YAML frontmatter), automatic tagging, and path suggestions.
+metadata: {"env": [{"name": "WIKI_KEY", "description": "Wiki.js API token (generate in Admin > API Access)", "required": true, "credential": true}, {"name": "WIKI_URL", "description": "Wiki.js GraphQL endpoint, e.g. https://your-wiki.example.com/graphql", "required": true}], "primaryCredential": "WIKI_KEY", "runtime": {"python": {"deps": ["requests"]}}}
 ---
 
 # Wiki Publisher
