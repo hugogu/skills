@@ -393,10 +393,10 @@ with open('article.md', 'r') as f:
 
 result = create_wiki_page(
     content=content,
-    title="反爬虫技术详解",
-    path="tech/security/anti-crawler",
-    description="反爬虫与反反爬虫技术详解",
-    tags=["网络安全", "爬虫"]
+    title="Daily Tech News Digest",
+    path="news/daily-tech",
+    description="A daily digest of notable technology news and updates",
+    tags=["news", "technology"]
 )
 
 base_url = WIKI_URL.replace('/graphql', '')
