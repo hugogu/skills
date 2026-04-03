@@ -1,11 +1,14 @@
 ---
 name: payful-query
 description: Query Payful account information including balance, transactions, and account details. Use when the user needs to check their Payful account status, view balance, or retrieve account information. Requires PAYFUL_TOKEN and PAYFUL_USER_ID environment variables to be set.
+metadata: {"env": [{"name": "PAYFUL_TOKEN", "description": "Authentication token sourced from the BF-INTERNATIONAL-MEMBER-TOKEN browser cookie on global.payful.com", "required": true, "credential": true}, {"name": "PAYFUL_USER_ID", "description": "User ID sourced from the AGL_USER_ID browser cookie on global.payful.com", "required": true, "credential": true}], "primaryCredential": "PAYFUL_TOKEN"}
 ---
 
 # Payful Query Skill
 
 This skill queries Payful account information via the Payful API.
+
+> **Security notice**: `PAYFUL_TOKEN` and `PAYFUL_USER_ID` are sensitive browser session cookies extracted from global.payful.com. They grant full access to your Payful account. Only set these values in a trusted environment and never share them.
 
 ## Prerequisites
 
