@@ -15,6 +15,13 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from urllib.parse import urlparse, urljoin
 
+# Import compliance analyzer
+try:
+    from compliance_analyzer import ComplianceAnalyzer
+    COMPLIANCE_AVAILABLE = True
+except ImportError:
+    COMPLIANCE_AVAILABLE = False
+
 # Optional imports with fallbacks
 try:
     import requests
@@ -46,6 +53,7 @@ class ScanResult:
     seo_data: Dict = field(default_factory=dict)
     third_party: Dict = field(default_factory=dict)
     pages_scanned: List = field(default_factory=list)
+    compliance_analysis: Dict = field(default_factory=dict)
 
 
 class IPAnalyzer:
@@ -330,6 +338,12 @@ class WebsiteScanner:
         self.content_analyzer = ContentAnalyzer()
         self.seo_analyzer = SEOAnalyzer()
         self.third_party_analyzer = ThirdPartyAnalyzer()
+        
+        # Initialize compliance analyzer if available
+        if COMPLIANCE_AVAILABLE:
+            self.compliance_analyzer = ComplianceAnalyzer()
+        else:
+            self.compliance_analyzer = None
     
     def scan(self):
         """Run all analyses"""
@@ -375,6 +389,13 @@ class WebsiteScanner:
         # Third-party data
         print("  🔎 Fetching third-party data...")
         self.result.third_party = self.third_party_analyzer.analyze(self.url)
+        
+        # Compliance Analysis
+        if self.compliance_analyzer:
+            print("  ⚖️  Analyzing compliance requirements...")
+            self.result.compliance_analysis = self.compliance_analyzer.analyze(
+                self.result.content_analysis, self.url, self.domain
+            )
         
         # Deep scan if requested
         if self.deep_scan:
