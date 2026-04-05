@@ -1,5 +1,5 @@
 ---
-name: wordpress-publisher
+name: wordpress-blogger
 description: >
   Publish articles to WordPress blogs via REST API. Handles post creation, category/tag management,
   and SEO-friendly English slug generation. Use when user asks to publish blog posts, create WordPress
