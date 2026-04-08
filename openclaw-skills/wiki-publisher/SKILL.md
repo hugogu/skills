@@ -1,103 +1,108 @@
 ---
-name: wiki-publisher
-description: Publish markdown content to Wiki.js with proper formatting and metadata. Use when user wants to create or update wiki pages, convert notes/articles to wiki format, or publish content to a Wiki.js instance. Handles API authentication, content formatting (removing YAML frontmatter), automatic tagging, and path suggestions.
+name: publish-to-wiki
+description: |
+  **TRIGGER WORDS:** "发到wiki"、"发wiki"、"publish to wiki"、"wiki发布"、"同步到wiki"
+  
+  **USE WHEN:**
+  - 用户说"把 xxx.md 发到wiki"
+  - 用户说"同步到wiki"
+  - 用户要求发布/上传/推送 markdown 内容到 Wiki.js
+  - 处理 workspace 中的 .md 文件并发布到 wiki.hugogu.cn
+  
+  **DO NOT USE:** 当用户只是查询/读取 wiki 内容时（用 feishu_fetch_doc）
+
+  此 skill 用于将本地 markdown 文件发布到 Wiki.js，处理格式转换、API 认证、路径规划。
 metadata: {"env": [{"name": "WIKI_KEY", "description": "Wiki.js API token (generate in Admin > API Access)", "required": true, "credential": true}, {"name": "WIKI_URL", "description": "Wiki.js GraphQL endpoint, e.g. https://your-wiki.example.com/graphql", "required": true}], "primaryCredential": "WIKI_KEY", "runtime": {"python": {"deps": ["requests"]}}}
 ---
 
-# Wiki Publisher
+# Publish to Wiki
 
-Publish markdown content to Wiki.js with proper formatting and metadata handling.
+将本地 Markdown 文件发布到 Wiki.js 知识库。
 
-## When to Use
+## 触发场景（按优先级排序）
 
-Use this skill when:
-- User wants to publish content to their Wiki.js instance
-- Converting articles, notes, or analysis to wiki format
-- Creating new wiki pages with proper structure
-- Updating existing wiki pages
-- Need to handle Wiki.js GraphQL API operations
+### 1. 文件路径 + 发 Wiki（最高优先级）
+当用户消息包含：
+- "把 `/path/to/file.md` 发到 wiki"
+- "同步 `xxx.md` 到 wiki"
+- "发布 `article.md` 到 wiki"
+- "`wiki_xxx.md` 发到我的 wiki"
 
-## Prerequisites
+**立即触发此 skill**。
 
-- `WIKI_KEY` environment variable must be set (Wiki.js API key)
-- Wiki.js instance URL must be accessible
-- User must have write permissions to the target wiki
+### 2. 直接发布指令
+- "发到 wiki"
+- "发 wiki"
+- "publish to wiki"
+- "wiki 发布"
+- "上传 wiki"
+- "推送 wiki"
 
-## Content Formatting Rules
+### 3. 创建 Wiki 页面
+- "创建 wiki 页面"
+- "新建 wiki 文章"
+- "在 wiki 上发篇文章"
 
-### Remove YAML Frontmatter
+## 快速使用流程
 
-**CRITICAL:** Wiki.js stores title/description in API parameters, NOT in content.
-
-❌ **Don't include in content:**
-```markdown
----
-title: Page Title
-description: Page description
----
-
-# Page Title
+```
+用户：把 /root/.openclaw/workspace/article.md 发到 wiki
+      ↓
+AI：读取 SKILL.md → 读取 article.md → 确定路径 → 发布 → 返回链接
 ```
 
-✅ **Correct format:**
-```markdown
-# Page Title
+## 前置检查
 
-Content starts here...
-```
+发布前必须确认：
+1. **读取 SKILL.md** - 确保按正确流程执行
+2. **读取目标文件** - 获取完整 markdown 内容
+3. **确定发布路径** - 根据内容类型建议路径（见下表）
+4. **确认标题** - 从文件 H1 标题或文件名提取
 
-### Heading Structure
+## 路径规划
 
-- Always start with H1 (`# Title`)
-- Use proper hierarchy (H1 → H2 → H3)
-- Don't skip levels
+| 内容类型 | 建议路径 | 示例 |
+|---------|---------|------|
+| 技术文档/架构设计 | `tech/{领域}/{主题}` | `tech/backend/rpc-guide` |
+| 产品设计/PRD | `product/{系统}/{文档}` | `product/risk-engine/prd` |
+| 风控/支付相关 | `fintech/{主题}` | `fintech/risk/design-patterns` |
+| 新闻/日报 | `news/{年}/{月}/{日期}` | `news/2026/04/2026-04-08` |
+| 个人笔记 | `notes/{分类}/{主题}` | `notes/ideas/architecture` |
+| 项目文档 | `projects/{项目}/{文档}` | `projects/openclaw/skill-dev` |
 
-### Links
+## 发布步骤
 
-- Use markdown format: `[text](url)`
-- Prefer relative links for internal wiki pages
-- External links should use full URL
-
-## API Usage
-
-### ⚠️ CRITICAL: GraphQL String Handling
-
-**The #1 cause of failures is incorrect string escaping.**
-
-#### ❌ WRONG - Direct String Interpolation
-
+### Step 1: 读取文件
 ```python
-# DON'T DO THIS - will fail with complex content
-query = f'''
-mutation {{
-  pages {{
-    create(content: "{content}") {{  # Content with quotes/newlines will break
-      page {{ id }}
-    }}
-  }}
-}}
-'''
+with open("/path/to/file.md", "r", encoding="utf-8") as f:
+    content = f.read()
 ```
 
-**Why it fails:**
-- Markdown contains `"` (quotes) that terminate the GraphQL string
-- Newlines in content break the query syntax
-- Backslashes in code blocks escape incorrectly
-- JSON serialization double-escapes
+### Step 2: 提取元信息
+- **标题**: 从文件第一行 `# Title` 提取，或文件名转换
+- **路径**: 根据内容类型建议，与用户确认
+- **描述**: 取前 100-200 字摘要
+- **标签**: 根据内容关键词提取 3-6 个
 
-#### ✅ CORRECT - Use GraphQL Variables
-
+### Step 3: 发布到 Wiki
 ```python
 import json
 import requests
+import os
+
+WIKI_URL = "https://wiki.hugogu.cn/graphql"
+WIKI_KEY = os.environ["WIKI_KEY"]
 
 query = '''
-mutation CreatePage($content: String!, $title: String!, $path: String!) {
+mutation CreatePage($content: String!, $title: String!, $path: String!, 
+                   $description: String!, $tags: [String]!) {
   pages {
     create(
       content: $content
       title: $title
       path: $path
+      description: $description
+      tags: $tags
       editor: "markdown"
       isPublished: true
       isPrivate: false
@@ -114,16 +119,14 @@ mutation CreatePage($content: String!, $title: String!, $path: String!) {
 '''
 
 variables = {
-    "content": raw_content,  # Pass raw content, no preprocessing
-    "title": "Page Title",
-    "path": "category/page-name"
+    "content": content,  # 原始 markdown，无需预处理
+    "title": title,
+    "path": path,  # 格式: "category/sub-category/page-name"
+    "description": description,
+    "tags": tags
 }
 
-# Let json.dumps handle all escaping automatically
-payload = json.dumps({
-    "query": query,
-    "variables": variables
-})
+payload = json.dumps({"query": query, "variables": variables})
 
 response = requests.post(
     WIKI_URL,
@@ -133,282 +136,73 @@ response = requests.post(
     },
     data=payload
 )
+
+result = response.json()
 ```
 
-**Why this works:**
-- `json.dumps()` properly escapes all special characters
-- GraphQL Variables separate data from query structure
-- Handles quotes, newlines, backslashes, Unicode automatically
-
-### Create Page
-
-```graphql
-mutation CreatePage($content: String!, $title: String!, $path: String!, $description: String!, $tags: [String]!) {
-  pages {
-    create(
-      content: $content
-      description: $description
-      editor: "markdown"
-      isPublished: true
-      isPrivate: false
-      locale: "zh"
-      path: $path
-      tags: $tags
-      title: $title
-    ) {
-      page {
-        id
-        path
-        title
-      }
-    }
-  }
-}
+### Step 4: 返回结果
+```
+✅ 发布成功！
+- 标题：{title}
+- 链接：https://wiki.hugogu.cn/{path}
+- 页面ID：{id}
 ```
 
-**Variables:**
-```json
-{
-  "content": "# Title\n\nContent...",
-  "title": "Page Title",
-  "path": "topic/category/page-name",
-  "description": "Page description",
-  "tags": ["tag1", "tag2"]
-}
-```
+## 格式处理规则
 
-**Type Requirements:**
-- `$content`: `String!` - Required, raw markdown
-- `$title`: `String!` - Required
-- `$path`: `String!` - Required, URL path
-- `$description`: `String!` - Required
-- `$tags`: `[String]!` - Required non-null array (elements may be null)
+### 自动清理
+- ✅ **保留**: 所有 markdown 格式、代码块、表格、链接
+- ✅ **保留**: HTML 标签（Wiki.js 支持）
+- ❌ **移除**: YAML frontmatter（`---` 包裹的元数据）
 
-### Update Page
+### 路径规范
+- 使用小写字母
+- 用连字符 `-` 代替空格
+- 路径层级建议 2-4 级
+- 避免特殊字符（保留 `/` 作为分隔符）
 
-```graphql
-mutation UpdatePage($id: Int!, $content: String!) {
-  pages {
-    update(
-      id: $id
-      content: $content
-      description: "Updated description"
-      editor: "markdown"
-    ) {
-      page {
-        id
-        path
-        title
-      }
-    }
-  }
-}
-```
+## 常见错误处理
 
-## GraphQL String Type Reference
+| 错误 | 原因 | 解决方案 |
+|-----|------|---------|
+| `Unauthorized` | API Key 无效 | 检查 `WIKI_KEY` 环境变量 |
+| `Page already exists` | 路径冲突 | 询问用户是更新还是换路径 |
+| `ValidationError` | 字符串转义问题 | 使用 GraphQL Variables，不要手动转义 |
+| 超时 | 内容太大 | 分批发布或优化内容 |
 
-### String Representation
+## 完整示例
 
-GraphQL supports two string formats:
+### 场景：发布技术文章
 
-#### 1. Single-line Strings (Double Quote)
-```graphql
-description: "Single line text"
-```
+**用户指令**: "把 wiki_rpc_article.md 发到 wiki"
 
-**Escape sequences required:**
-| Character | Escape | Example |
-|-----------|--------|---------|
-| `"` | `\"` | `"Say \"hello\""` |
-| `\` | `\\` | `"C:\\path"` |
-| Newline | `\n` | `"Line1\nLine2"` |
-| Tab | `\t` | `"Col1\tCol2"` |
-
-#### 2. Block Strings (Triple Quote)
-```graphql
-content: """
-Multi-line
-content here
-"""
-```
-
-**Notes:**
-- Preserves newlines
-- Must escape `"""` within content
-- Leading whitespace is normalized based on first line
-
-### Common Escape Pitfalls
-
-#### Pitfall 1: Markdown Code Blocks
-
-Markdown contains triple backticks that conflict:
-```markdown
+**执行流程**:
 ```python
-def hello():
-    pass
-```
-```
-
-When inserted into GraphQL block string:
-```graphql
-content: """
-```python  # ❌ Conflicts with GraphQL """
-def hello()
-```
-"""
-```
-
-**Solution:** Use GraphQL Variables (recommended) or escape each `` ` `` as `\``.
-
-#### Pitfall 2: JSON Double-Escaping
-
-```python
-# ❌ WRONG - manual escape then JSON serialize
-content_escaped = content.replace('"', '\\"')
-payload = json.dumps({"query": f'..."{content_escaped}"...'})
-# Results in: \\\" (double escaped)
-
-# ✅ CORRECT - pass raw content to variables
-payload = json.dumps({
-    "query": "mutation($c: String!) { create(content: $c) }",
-    "variables": {"c": raw_content}
-})
-```
-
-#### Pitfall 3: Unicode Characters
-
-GraphQL Strings are UTF-8 encoded. Ensure:
-- Source file is UTF-8
-- HTTP request specifies `Content-Type: application/json; charset=utf-8`
-- No BOM (Byte Order Mark) at file start
-
-## Path Conventions
-
-Suggest paths based on content type:
-
-| Content Type | Suggested Path |
-|--------------|----------------|
-| Technical docs | `tech/{category}/{topic}` |
-| Thinking models | `topic/thinking-models/{name}` |
-| Financial concepts | `financial/{category}/{name}` |
-| Personal notes | `notes/{category}/{name}` |
-| Project docs | `projects/{name}/{doc}` |
-
-## Workflow
-
-1. **Extract content** - Get markdown from user or generate it
-2. **Clean formatting** - Remove YAML frontmatter if present
-3. **Suggest metadata** - Propose path, tags, description
-4. **Confirm with user** - Show proposed wiki location
-5. **Publish** - Run `{baseDir}/scripts/publish_to_wiki.py publish <file.md> --path <wiki/path>` or execute GraphQL mutation directly using **Variables**
-6. **Return link** - Provide wiki page URL
-
-## Error Handling
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `ValidationError: Variable $content... invalid value` | String escaping issue | Use Variables + json.dumps |
-| `GraphQLError: Variable $tags of type [String!]` | Tags type mismatch | Use `[String]!` not `[String!]` (Wiki.js expects non-null array, elements can be null) |
-| `Unauthorized` | Invalid API key | Check WIKI_KEY env var |
-| `Page already exists` | Path conflict | Use update mutation or different path |
-
-## Example: Complete Python Implementation
-
-```python
-import json
-import os
-import requests
-
-WIKI_URL = os.environ["WIKI_URL"]   # e.g. https://your-wiki.example.com/graphql
-WIKI_KEY = os.environ["WIKI_KEY"]
-
-def create_wiki_page(content: str, title: str, path: str, 
-                     description: str = "", tags: list = None) -> dict:
-    """
-    Create a Wiki.js page using GraphQL API.
-    
-    Args:
-        content: Raw markdown content (will be auto-escaped)
-        title: Page title
-        path: URL path (e.g., "tech/security/topic")
-        description: Page description
-        tags: List of tag strings
-    
-    Returns:
-        API response JSON
-    """
-    query = '''
-    mutation CreatePage($content: String!, $title: String!, 
-                       $path: String!, $description: String!, 
-                       $tags: [String]!) {
-      pages {
-        create(
-          content: $content
-          title: $title
-          path: $path
-          description: $description
-          tags: $tags
-          editor: "markdown"
-          isPublished: true
-          isPrivate: false
-          locale: "zh"
-        ) {
-          page {
-            id
-            path
-            title
-          }
-        }
-      }
-    }
-    '''
-    
-    variables = {
-        "content": content,  # Raw content - json.dumps handles escaping
-        "title": title,
-        "path": path,
-        "description": description or title,
-        "tags": tags or []
-    }
-    
-    payload = json.dumps({
-        "query": query,
-        "variables": variables
-    })
-    
-    response = requests.post(
-        WIKI_URL,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {WIKI_KEY}"
-        },
-        data=payload
-    )
-    
-    return response.json()
-
-# Usage
-with open('article.md', 'r') as f:
+# 1. 读取文件
+with open("/root/.openclaw/workspace/wiki_rpc_article.md", "r") as f:
     content = f.read()
 
-result = create_wiki_page(
-    content=content,
-    title="Daily Tech News Digest",
-    path="news/daily-tech",
-    description="A daily digest of notable technology news and updates",
-    tags=["news", "technology"]
-)
+# 2. 提取标题（第一行 H1）
+title = "RPC协议深度解析：从原理到实践"  # 从 # RPC协议深度解析... 提取
 
-base_url = WIKI_URL.replace('/graphql', '')
-print(f"Created: {base_url}/{result['data']['pages']['create']['page']['path']}")
+# 3. 确定路径
+path = "tech/backend/rpc-protocol-guide"
+
+# 4. 提取描述（前200字）
+description = "深入解析RPC远程过程调用协议，涵盖核心架构、主流框架对比..."
+
+# 5. 设置标签
+tags = ["RPC", "分布式系统", "微服务", "技术架构", "gRPC", "Dubbo"]
+
+# 6. 发布
+# ... GraphQL mutation ...
+
+# 7. 返回结果
+print("✅ 发布成功！")
+print("链接: https://wiki.hugogu.cn/tech/backend/rpc-protocol-guide")
 ```
 
-## Reference
+## 参考
 
-- [GraphQL Spec - String Type](https://spec.graphql.org/October2021/#sec-String)
-- See `references/wiki-js-api.md` for complete GraphQL schema
-- Wiki.js API Documentation: https://docs.requarks.io/dev/api
-
----
-
-**Remember:** Always use GraphQL Variables for content. Never interpolate strings directly into GraphQL queries.
+- Wiki.js GraphQL API: https://docs.requarks.io/dev/api
+- GraphQL 变量最佳实践: https://graphql.org/learn/queries/#variables
