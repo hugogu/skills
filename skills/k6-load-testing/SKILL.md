@@ -24,11 +24,7 @@ Set up a complete, production-ready load testing infrastructure for any API proj
 
 When the user wants to set up load testing:
 
-1. **Initialize the testing infrastructure** in their project:
-   ```bash
-   # Copy all necessary files to the project
-   cp -r <skill-path>/assets/templates/* ./
-   ```
+1. **Initialize the testing infrastructure** in their project (see Step 1 below for safe file handling)
 
 2. **Configure the target API**:
    - Ask user for their API base URL
@@ -54,24 +50,168 @@ When the user wants to set up load testing:
 
 ### Step 1: Initialize Infrastructure
 
-Ask the user which directory to initialize (usually project root). Then copy these files:
+**IMPORTANT: Check for existing files first!** Before copying, check if these files exist in the target directory:
+- `docker-compose.yml`
+- `README.md`
 
-```
-docker-compose.yml    # Services orchestration
-Makefile             # Common commands
-.env.example         # Configuration template
-k6/
-  scripts/
-    templates/       # Test script templates
-    utils.js         # Shared utilities
-  config/            # Environment configs
-grafana/             # Dashboard provisioning
-scripts/             # Helper scripts
+#### Option A: Merge with existing docker-compose.yml (Recommended)
+
+If the project already has a `docker-compose.yml`:
+
+1. Copy k6-specific files (these don't conflict):
+   ```bash
+   # Copy only k6-specific directories and Makefile
+   cp -r <skill-path>/assets/templates/k6 ./
+   cp -r <skill-path>/assets/templates/grafana ./
+   cp <skill-path>/assets/templates/Makefile ./Makefile.k6
+   ```
+
+2. Merge the k6 services into existing `docker-compose.yml` by adding these services:
+
+   ```yaml
+   # Add to existing docker-compose.yml
+   services:
+     # ... existing services ...
+     
+     # k6 Load Testing Services
+     influxdb:
+       image: influxdb:1.8
+       container_name: k6-influxdb
+       ports:
+         - "${INFLUXDB_PORT:-8086}:8086"
+       environment:
+         - INFLUXDB_DB=${INFLUXDB_DB:-k6}
+         - INFLUXDB_HTTP_AUTH_ENABLED=false
+       volumes:
+         - influxdb-data:/var/lib/influxdb
+       networks:
+         - k6-network
+       healthcheck:
+         test: ["CMD", "influx", "-execute", "SHOW DATABASES"]
+         interval: 10s
+         timeout: 5s
+         retries: 5
+         start_period: 15s
+   
+     grafana:
+       image: grafana/grafana:10.2.0
+       container_name: k6-grafana
+       ports:
+         - "${GRAFANA_PORT:-3001}:3000"
+       environment:
+         - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+         - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+         - GF_USERS_ALLOW_SIGN_UP=false
+         - INFLUXDB_DB=${INFLUXDB_DB:-k6}
+       volumes:
+         - grafana-data:/var/lib/grafana
+         - ./grafana/provisioning:/etc/grafana/provisioning
+         - ./grafana/dashboards:/etc/grafana/dashboards
+       networks:
+         - k6-network
+       depends_on:
+         influxdb:
+           condition: service_healthy
+   
+     k6:
+       image: grafana/k6:0.48.0
+       container_name: k6-runner
+       environment:
+         - K6_OUT=influxdb=http://influxdb:8086/${INFLUXDB_DB:-k6}
+         - TARGET_URL=${TARGET_URL:-https://test.k6.io}
+       volumes:
+         - ./k6/scripts:/scripts
+         - ./k6/config:/config
+       networks:
+         - k6-network
+       depends_on:
+         - influxdb
+       # Run on-demand via: docker-compose run --rm k6 run /scripts/test.js
+   
+   networks:
+     # ... existing networks ...
+     k6-network:
+       driver: bridge
+   
+   volumes:
+     # ... existing volumes ...
+     influxdb-data:
+       driver: local
+     grafana-data:
+       driver: local
+   ```
+
+3. Add k6 documentation to existing README.md:
+
+   Append to `README.md`:
+   ```markdown
+   ## Load Testing with k6
+   
+   This project includes k6 load testing infrastructure.
+   
+   ### Quick Start
+   
+   1. Configure environment:
+      ```bash
+      # Add to your .env file:
+      TARGET_URL=https://your-api-url.com
+      K6_VUS=10
+      K6_DURATION=5m
+      GRAFANA_PORT=3001
+      INFLUXDB_PORT=8086
+      ```
+   
+   2. Start testing infrastructure:
+      ```bash
+      make -f Makefile.k6 start
+      ```
+   
+   3. Run a test:
+      ```bash
+      make -f Makefile.k6 test
+      ```
+   
+   4. View results:
+      - Open http://localhost:3001
+      - Login: admin/admin
+   
+   See Makefile.k6 for more commands.
+   ```
+
+#### Option B: Use separate docker-compose file
+
+If you prefer to keep k6 services separate:
+
+1. Copy k6 infrastructure:
+   ```bash
+   cp -r <skill-path>/assets/templates/k6 ./
+   cp -r <skill-path>/assets/templates/grafana ./
+   cp <skill-path>/assets/templates/Makefile ./Makefile.k6
+   cp <skill-path>/assets/templates/docker-compose.yml ./docker-compose.k6.yml
+   ```
+
+2. Create README.k6.md with standalone documentation:
+   ```bash
+   cp <skill-path>/assets/templates/README.md ./README.k6.md
+   ```
+
+3. Use separate compose commands:
+   ```bash
+   docker-compose -f docker-compose.k6.yml up -d
+   make -f Makefile.k6 start
+   ```
+
+#### Option C: Fresh project (no existing files)
+
+If the project doesn't have docker-compose.yml or README.md:
+
+```bash
+cp -r <skill-path>/assets/templates/* ./
 ```
 
 ### Step 2: Configure Target API
 
-Read the `.env.example` file and guide user to create `.env`:
+Read the environment configuration and guide user to create/update `.env`:
 
 ```bash
 # Required
@@ -81,14 +221,17 @@ TARGET_URL=https://api.example.com
 K6_VUS=10                    # Virtual users
 K6_DURATION=5m              # Test duration
 GRAFANA_PORT=3001           # Grafana port
+INFLUXDB_PORT=8086          # InfluxDB port
 ```
+
+**Note**: If using Option A (merged docker-compose), add these variables to the existing `.env` file. If the project doesn't have a `.env` file, create one.
 
 ### Step 3: Generate Test Script
 
 Based on user's API endpoints, generate a test script using templates:
 
 **For simple load testing**:
-- Use `load-test-template.js`
+- Use `k6/scripts/templates/load-test-template.js`
 - Configure endpoints, HTTP methods, and payloads
 
 **For comprehensive testing**:
@@ -97,11 +240,28 @@ Based on user's API endpoints, generate a test script using templates:
 
 ### Step 4: Run and Monitor
 
-Guide user through:
-1. `make start` - Start infrastructure
-2. `make test` or `make test-load` - Run tests
-3. Open Grafana to view real-time results
-4. `make stop` - Clean up when done
+Guide user through (adjust commands based on your setup):
+
+**For Option A (merged)**:
+```bash
+make -f Makefile.k6 start    # Start infrastructure
+make -f Makefile.k6 test     # Run tests
+docker-compose ps            # Check status
+```
+
+**For Option B (separate)**:
+```bash
+docker-compose -f docker-compose.k6.yml up -d
+make -f Makefile.k6 test
+```
+
+**For Option C (fresh)**:
+```bash
+make start     # Start infrastructure
+make test      # Run tests
+```
+
+Open Grafana to view real-time results, then clean up when done.
 
 ## Test Types Guide
 
@@ -127,6 +287,20 @@ Read `references/ci-cd-examples.md` for ready-to-use configurations.
 
 ## Common Commands
 
+**For merged setup (Option A)**:
+```bash
+make -f Makefile.k6 start          # Start InfluxDB + Grafana
+make -f Makefile.k6 test           # Run basic load test
+make -f Makefile.k6 test-load      # Load test with custom config
+make -f Makefile.k6 test-stress    # Stress test
+make -f Makefile.k6 test-spike     # Spike test
+make -f Makefile.k6 test-soak      # Soak test (2+ hours)
+make -f Makefile.k6 status         # Check services
+make -f Makefile.k6 clean          # Remove all data
+make -f Makefile.k6 logs           # View service logs
+```
+
+**For separate setup (Option B)** or **fresh setup (Option C)**:
 ```bash
 make start          # Start InfluxDB + Grafana
 make test           # Run basic load test
@@ -142,7 +316,7 @@ make logs           # View service logs
 ## Customization Points
 
 ### Authentication
-If API requires auth, use helpers from `utils.js`:
+If API requires auth, use helpers from `k6/scripts/utils.js`:
 
 ```javascript
 import { bearerAuth, basicAuth, apiKeyAuth } from './utils.js';
@@ -193,8 +367,16 @@ export const options = {
 
 ## Troubleshooting
 
+**Issue**: k6 services conflict with existing services
+- **Fix**: Use Option B (separate docker-compose.k6.yml) or change port mappings in `.env`
+
+**Issue**: Makefile.k6 commands don't work
+- **Fix**: Update Makefile.k6 to use correct docker-compose command:
+  - For Option A: Keep `docker-compose` (uses default docker-compose.yml)
+  - For Option B: Change to `docker-compose -f docker-compose.k6.yml`
+
 **Issue**: Grafana shows "No data"
-- **Fix**: Ensure InfluxDB is healthy (`make status`) and tests are running
+- **Fix**: Ensure InfluxDB is healthy (`make -f Makefile.k6 status`) and tests are running
 
 **Issue**: k6 can't connect to target API
 - **Fix**: Check `TARGET_URL` in `.env`, verify network connectivity
@@ -213,6 +395,7 @@ export const options = {
 4. **Set thresholds**: Define acceptable performance criteria before testing
 5. **Baseline first**: Run tests against current version before changes
 6. **Automate**: Add to CI/CD to catch performance regressions
+7. **Don't overwrite**: Always check for existing files before initializing
 
 ## File Reference
 
@@ -221,3 +404,38 @@ export const options = {
 - `references/ci-cd-examples.md` - CI/CD configuration examples
 - `references/advanced-scenarios.md` - Complex testing scenarios
 - `assets/templates/` - Ready-to-use template files
+
+### Template Files Structure
+
+```
+assets/templates/
+├── docker-compose.yml          # k6 services (influxdb, grafana, k6)
+├── Makefile                   # k6-specific commands
+├── README.md                  # Standalone documentation
+├── k6/
+│   ├── scripts/
+│   │   ├── templates/         # Test templates
+│   │   ├── examples/          # Example tests
+│   │   └── utils.js           # Helper functions
+│   └── config/                # k6 configuration
+└── grafana/                   # Dashboard provisioning
+    ├── dashboards/
+    └── provisioning/
+```
+
+## Implementation Checklist
+
+When implementing this skill:
+
+- [ ] Check for existing `docker-compose.yml`
+- [ ] Check for existing `README.md`
+- [ ] Check for existing `Makefile`
+- [ ] Choose integration strategy (merge, separate, or fresh)
+- [ ] Copy k6-specific directories (k6/, grafana/)
+- [ ] Handle docker-compose.yml appropriately
+- [ ] Handle README.md appropriately  
+- [ ] Handle Makefile appropriately (rename to Makefile.k6 if needed)
+- [ ] Configure TARGET_URL in .env
+- [ ] Test the setup with `make start`
+- [ ] Verify Grafana is accessible
+- [ ] Run a test to confirm data flow
