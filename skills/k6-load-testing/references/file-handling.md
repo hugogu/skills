@@ -384,6 +384,50 @@ docker-compose run --rm k6 sh -c "wget -qO- http://host.docker.internal:3000/hea
 
 **Note**: The docker-compose.yml includes `extra_hosts` configuration to enable `host.docker.internal` resolution on most systems.
 
+### Issue: k6 gets "403 Forbidden" from dev server
+
+**Solution**: Modern dev servers (Vite 5+, webpack, Vue CLI) block requests from non-localhost hosts for security.
+
+**Symptom:**
+```
+Status: 403 Forbidden
+Body: Blocked request. This host ("host.docker.internal") is not allowed.
+```
+
+**Fix for Vite (vite.config.ts):**
+```typescript
+export default defineConfig({
+  server: {
+    allowedHosts: ['host.docker.internal']
+  },
+})
+```
+
+**Fix for webpack (webpack.config.js):**
+```javascript
+devServer: {
+  allowedHosts: ['host.docker.internal']
+}
+```
+
+**Fix for Vue CLI (vue.config.js):**
+```javascript
+devServer: {
+  allowedHosts: ['host.docker.internal']
+}
+```
+
+**Quick fix (less secure, only for testing):**
+```bash
+# Vite
+npm run dev -- --host
+
+# webpack
+webpack serve --allowed-hosts all
+```
+
+**Important:** Restart dev server after config changes for them to take effect.
+
 ## Best Practices
 
 1. **Always check for existing files first** before running any copy commands

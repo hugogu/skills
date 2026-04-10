@@ -115,6 +115,16 @@ TARGET_URL=http://host.docker.internal:3000
 TARGET_URL=http://172.17.0.1:3000
 ```
 
+**⚠️ Dev server blocking requests (403 Forbidden)?**
+Modern dev servers (Vite, webpack) block non-localhost hosts. Add to your dev server config:
+```javascript
+// vite.config.ts
+server: {
+  allowedHosts: ['host.docker.internal']
+}
+```
+Or use `--host` flag: `npm run dev -- --host`
+
 ## 🌐 Accessing Results
 
 - **Grafana**: http://localhost:3001

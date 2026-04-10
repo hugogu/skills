@@ -273,6 +273,53 @@ This enables `host.docker.internal` resolution on most systems.
 docker-compose run --rm k6 curl http://host.docker.internal:3000/health
 ```
 
+#### Dev Server Security (Vite, webpack, etc.)
+
+**Critical**: Modern frontend dev servers (Vite 5+, webpack, etc.) have security features that block requests from non-localhost hosts by default. This causes "403 Forbidden - Blocked request" errors when k6 tries to access `host.docker.internal`.
+
+**Symptom:**
+```
+Status: 403 Forbidden
+Body: Blocked request. This host ("host.docker.internal") is not allowed.
+```
+
+**Fix for Vite (vite.config.ts):**
+```typescript
+export default defineConfig({
+  // ... other config
+  server: {
+    // Allow k6 container to access the dev server
+    allowedHosts: ['host.docker.internal'],
+    // Or allow all hosts (less secure, only for testing)
+    // allowedHosts: true,
+  },
+})
+```
+
+**Fix for webpack (webpack.config.js):**
+```javascript
+module.exports = {
+  // ... other config
+  devServer: {
+    // Allow k6 container to access the dev server
+    allowedHosts: ['host.docker.internal'],
+    // Or disable host check (less secure, only for testing)
+    // disableHostCheck: true,
+  },
+}
+```
+
+**Fix for Vue CLI (vue.config.js):**
+```javascript
+module.exports = {
+  devServer: {
+    allowedHosts: ['host.docker.internal'],
+  },
+}
+```
+
+**Important:** After updating the config, restart your dev server for changes to take effect.
+
 ### Step 3: Generate Test Script
 
 Based on user's API endpoints, generate a test script using templates:
@@ -414,8 +461,19 @@ export const options = {
 
 ## Troubleshooting
 
-**Issue**: k6 services conflict with existing services
-- **Fix**: Use Option B (separate docker-compose.k6.yml) or change port mappings in `.env`
+**Issue**: k6 gets "403 Forbidden - Blocked request" from dev server
+- **Fix**: Dev servers (Vite, webpack) block non-localhost hosts by default. Add `allowedHosts` to your dev server config:
+  ```javascript
+  // vite.config.ts
+  server: {
+    allowedHosts: ['host.docker.internal']
+  }
+  ```
+- **Alternative**: Use `--host` flag to allow all hosts (less secure):
+  ```bash
+  npm run dev -- --host
+  ```
+- **Note**: Restart dev server after config changes
 
 **Issue**: Makefile.k6 commands don't work
 - **Fix**: Update Makefile.k6 to use correct docker-compose command:
