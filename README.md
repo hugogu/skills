@@ -174,6 +174,55 @@ python scripts/generate_template.py time_series table=orders time_column=created
 
 ---
 
+### k6-load-testing
+
+使用 k6 + InfluxDB + Grafana 构建完整的 API 压力测试基础设施。支持负载测试、压力测试、峰值测试和浸泡测试四种测试类型。
+
+**功能**
+- 一键部署完整的测试栈（k6 + InfluxDB + Grafana）
+- 四种测试模板：负载测试、压力测试、峰值测试、浸泡测试
+- 实时监控仪表板，可视化展示测试指标
+- 支持 Bearer Token、Basic Auth、API Key 等多种认证方式
+- 内置 CI/CD 集成模板（GitHub Actions、GitLab CI、Jenkins、Azure DevOps、CircleCI）
+- 基于阈值的自动化测试通过/失败判定
+
+**前置条件**
+- Docker CLI
+- docker-compose
+
+**使用示例**
+```bash
+# 设置项目压力测试基础设施
+# Claude 会自动创建以下结构：
+# docker-compose.yml          # 服务编排配置
+# Makefile                   # 常用命令快捷方式
+# k6/
+# ├── scripts/
+# │   ├── templates/         # 四种测试类型模板
+# │   └── utils.js           # 共享工具函数
+# └── config/                # 环境配置
+# grafana/                   # 仪表板配置
+
+# 启动基础设施
+make start
+
+# 运行负载测试（10 VU，30秒）
+make test
+
+# 运行压力测试（渐进式负载 0→100→200 VU）
+make test-stress
+
+# 自定义测试参数
+make test-load TARGET_URL=https://api.example.com K6_VUS=50 K6_DURATION=5m
+
+# 查看实时监控结果
+open http://localhost:3000  # admin/admin
+```
+
+详见 [SKILL.md](skills/k6-load-testing/SKILL.md)
+
+---
+
 ## 安装方法
 
 这些 Skill 设计用于 Claude Code 环境，也可单独使用。
@@ -187,6 +236,7 @@ npx skills add https://github.com/hugogu/skills --skill dockerhub-to-aliyun-acr-
 npx skills add https://github.com/hugogu/skills --skill grant-gitlab
 npx skills add https://github.com/hugogu/skills --skill docker-deploy
 npx skills add https://github.com/hugogu/skills --skill git-commit
+npx skills add https://github.com/hugogu/skills --skill k6-load-testing
 ```
 
 安装后可直接对话使用：
@@ -194,6 +244,8 @@ npx skills add https://github.com/hugogu/skills --skill git-commit
 - "给张三添加 myproject 的 Developer 权限"
 - "为我的 Node.js 项目设置 Docker 部署"
 - "帮我创建一个查询最近7天订单的 Metabase Dashboard"
+- "为我的 API 设置压力测试"
+- "帮我测试 https://api.example.com 的性能"
 
 ### 方式二：独立使用
 
@@ -219,10 +271,15 @@ skills/
 ├── metabase-query/                  # Metabase 查询与 Dashboard
 │   ├── SKILL.md                     # 完整使用说明
 │   └── scripts/                     # SQL 安全检查脚本
-└── prisma-migrations/               # Prisma 迁移管理
+├── prisma-migrations/               # Prisma 迁移管理
+│   ├── SKILL.md                     # 完整使用说明
+│   ├── scripts/                     # 迁移脚本
+│   └── reference/                   # 参考配置
+└── k6-load-testing/                 # API 压力测试基础设施
     ├── SKILL.md                     # 完整使用说明
-    ├── scripts/                     # 迁移脚本
-    └── reference/                   # 参考配置
+    ├── assets/templates/            # 测试模板文件
+    ├── references/                  # CI/CD 示例
+    └── evals/                       # 测试用例
 ```
 
 ---
