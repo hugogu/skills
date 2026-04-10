@@ -105,6 +105,16 @@ GRAFANA_PORT=3001                      # Grafana port
 INFLUXDB_PORT=8086                     # InfluxDB port
 ```
 
+**⚠️ Testing localhost APIs?**
+Use `host.docker.internal` instead of `localhost`:
+```bash
+# If your API runs on http://localhost:3000
+TARGET_URL=http://host.docker.internal:3000
+
+# Linux users: use host IP instead
+TARGET_URL=http://172.17.0.1:3000
+```
+
 ## 🌐 Accessing Results
 
 - **Grafana**: http://localhost:3001
@@ -113,15 +123,32 @@ INFLUXDB_PORT=8086                     # InfluxDB port
 
 ## 🆘 Troubleshooting
 
+**Dashboard not showing in Grafana?**
+→ Check file exists: `ls grafana/dashboards/k6-load-testing-results.json`
+→ Restart Grafana: `docker-compose restart grafana`
+→ Access manually: http://localhost:3001/dashboards
+
+**k6 can't reach localhost API?**
+→ Use `host.docker.internal` instead of `localhost`:
+```bash
+# Wrong
+TARGET_URL=http://localhost:3000/api
+
+# Correct
+TARGET_URL=http://host.docker.internal:3000/api
+```
+→ Test connectivity:
+```bash
+docker-compose run --rm k6 sh -c "wget -qO- http://host.docker.internal:3000/health"
+```
+→ For Linux, add to docker-compose.yml k6 service: `network_mode: host`
+
 **Port conflicts?**
 → Change ports in `.env`:
 ```bash
 GRAFANA_PORT=3002
 INFLUXDB_PORT=8087
 ```
-
-**k6 can't reach my app?**
-→ Use Option A (Merge) for same network, or expose app via host
 
 **Services not starting?**
 → Check: `make -f Makefile.k6 status`

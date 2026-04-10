@@ -93,40 +93,45 @@ If the project already has a `docker-compose.yml`:
          retries: 5
          start_period: 15s
    
-     grafana:
-       image: grafana/grafana:10.2.0
-       container_name: k6-grafana
-       ports:
-         - "${GRAFANA_PORT:-3001}:3000"
-       environment:
-         - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-         - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-         - GF_USERS_ALLOW_SIGN_UP=false
-         - INFLUXDB_DB=${INFLUXDB_DB:-k6}
-       volumes:
-         - grafana-data:/var/lib/grafana
-         - ./grafana/provisioning:/etc/grafana/provisioning
-         - ./grafana/dashboards:/etc/grafana/dashboards
-       networks:
-         - k6-network
-       depends_on:
-         influxdb:
-           condition: service_healthy
+      grafana:
+        image: grafana/grafana:10.2.0
+        container_name: k6-grafana
+        ports:
+          - "${GRAFANA_PORT:-3001}:3000"
+        environment:
+          - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+          - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+          - GF_USERS_ALLOW_SIGN_UP=false
+          - INFLUXDB_DB=${INFLUXDB_DB:-k6}
+          # Auto-load the k6 dashboard as home
+          - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/k6-load-testing-results.json
+        volumes:
+          - grafana-data:/var/lib/grafana
+          - ./grafana/provisioning:/etc/grafana/provisioning
+          - ./grafana/dashboards:/etc/grafana/dashboards
+        networks:
+          - k6-network
+        depends_on:
+          influxdb:
+            condition: service_healthy
    
-     k6:
-       image: grafana/k6:0.48.0
-       container_name: k6-runner
-       environment:
-         - K6_OUT=influxdb=http://influxdb:8086/${INFLUXDB_DB:-k6}
-         - TARGET_URL=${TARGET_URL:-https://test.k6.io}
-       volumes:
-         - ./k6/scripts:/scripts
-         - ./k6/config:/config
-       networks:
-         - k6-network
-       depends_on:
-         - influxdb
-       # Run on-demand via: docker-compose run --rm k6 run /scripts/test.js
+      k6:
+        image: grafana/k6:0.48.0
+        container_name: k6-runner
+        environment:
+          - K6_OUT=influxdb=http://influxdb:8086/${INFLUXDB_DB:-k6}
+          - TARGET_URL=${TARGET_URL:-https://test.k6.io}
+        volumes:
+          - ./k6/scripts:/scripts
+          - ./k6/config:/config
+        networks:
+          - k6-network
+        # Enable access to host services (for testing localhost APIs)
+        extra_hosts:
+          - "host.docker.internal:host-gateway"
+        depends_on:
+          - influxdb
+        # Run on-demand via: docker-compose run --rm k6 run /scripts/test.js
    
    networks:
      # ... existing networks ...
@@ -214,8 +219,11 @@ cp -r <skill-path>/assets/templates/* ./
 Read the environment configuration and guide user to create/update `.env`:
 
 ```bash
-# Required
+# Required - for external APIs
 TARGET_URL=https://api.example.com
+
+# Required - for localhost APIs (see Network Configuration below)
+TARGET_URL=http://host.docker.internal:8080/api
 
 # Optional customizations
 K6_VUS=10                    # Virtual users
@@ -225,6 +233,45 @@ INFLUXDB_PORT=8086          # InfluxDB port
 ```
 
 **Note**: If using Option A (merged docker-compose), add these variables to the existing `.env` file. If the project doesn't have a `.env` file, create one.
+
+#### Network Configuration for Localhost APIs
+
+**Critical**: When testing APIs running on your local machine (localhost), k6 runs inside a Docker container with its own network. To access host services:
+
+**For Docker Desktop (Mac/Windows):**
+Use `host.docker.internal` instead of `localhost`:
+```bash
+# If your API runs on http://localhost:3000
+TARGET_URL=http://host.docker.internal:3000
+
+# If your API runs on a specific path
+TARGET_URL=http://host.docker.internal:5174/api/endpoint
+```
+
+**For Linux:**
+Use the host's IP address or add network mode:
+```bash
+# Option 1: Use host network mode (add to docker-compose.yml k6 service)
+network_mode: host
+
+# Option 2: Use host's IP address
+TARGET_URL=http://172.17.0.1:3000  # Docker bridge gateway
+```
+
+**The docker-compose.yml already includes:**
+```yaml
+k6:
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+```
+
+This enables `host.docker.internal` resolution on most systems.
+
+**Verify connectivity before testing:**
+```bash
+# Test from k6 container to host
+docker-compose run --rm k6 curl http://host.docker.internal:3000/health
+```
 
 ### Step 3: Generate Test Script
 
@@ -374,6 +421,29 @@ export const options = {
 - **Fix**: Update Makefile.k6 to use correct docker-compose command:
   - For Option A: Keep `docker-compose` (uses default docker-compose.yml)
   - For Option B: Change to `docker-compose -f docker-compose.k6.yml`
+
+**Issue**: Grafana dashboard not showing / "No dashboards"
+- **Fix**: 
+  1. Check dashboard file exists: `ls grafana/dashboards/k6-load-testing-results.json`
+  2. Restart Grafana: `docker-compose restart grafana`
+  3. Check Grafana logs: `docker-compose logs grafana | grep -i dashboard`
+  4. Dashboard should auto-provision from `grafana/provisioning/dashboards/default.yml`
+  5. Access manually: http://localhost:3001/dashboards
+
+**Issue**: k6 can't connect to localhost API on host
+- **Fix**: Use `host.docker.internal` instead of `localhost` in TARGET_URL:
+  ```bash
+  # Wrong - k6 can't reach host localhost
+  TARGET_URL=http://localhost:3000/api
+  
+  # Correct - use host.docker.internal
+  TARGET_URL=http://host.docker.internal:3000/api
+  ```
+- **Fix for Linux**: Add `network_mode: host` to k6 service in docker-compose.yml, or use host IP
+- **Verify**: Test connectivity from k6 container:
+  ```bash
+  docker-compose run --rm k6 sh -c "wget -qO- http://host.docker.internal:3000/health || echo 'Cannot reach host'"
+  ```
 
 **Issue**: Grafana shows "No data"
 - **Fix**: Ensure InfluxDB is healthy (`make -f Makefile.k6 status`) and tests are running

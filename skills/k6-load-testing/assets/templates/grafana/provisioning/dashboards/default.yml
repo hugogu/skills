@@ -1,13 +1,14 @@
 apiVersion: 1
 
 providers:
-  - name: 'default'
+  - name: 'k6-dashboards'
     orgId: 1
-    folder: ''
+    folder: 'k6 Load Testing'
+    folderUid: 'k6-load-testing-folder'
     type: file
     disableDeletion: false
     editable: true
-    updateIntervalSeconds: 5
+    updateIntervalSeconds: 10
     allowUiUpdates: true
     options:
       path: /etc/grafana/dashboards
