@@ -28,6 +28,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - INFLUXDB_DB=${INFLUXDB_DB:-k6}
+      # Set the default home dashboard
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/k6-load-testing-results.json
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -49,6 +51,10 @@ services:
       - ./k6/config:/config
     networks:
       - k6-network
+    # Enable access to host services (for testing localhost APIs)
+    # This allows k6 to reach services running on the host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - influxdb
     # No ports exposed - run on-demand via: docker-compose run --rm k6 run /scripts/test.js
