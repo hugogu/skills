@@ -1,0 +1,23 @@
+{
+  "skill_name": "k6-load-testing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我想为我的项目设置 API 压力测试，我的 API 地址是 https://api.example.com",
+      "expected_output": "初始化 k6 测试基础设施，配置 TARGET_URL 为 https://api.example.com，并提供运行测试的指导",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我创建一个负载测试脚本来测试 /users 和 /orders 两个端点",
+      "expected_output": "基于 load-test-template.js 生成自定义测试脚本，包含 GET /users 和 GET /orders 请求",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我想在 GitHub Actions 中集成性能测试",
+      "expected_output": "生成 .github/workflows/performance.yml 配置文件，包含完整的 CI/CD 集成",
+      "files": []
+    }
+  ]
+}
