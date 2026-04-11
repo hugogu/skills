@@ -231,26 +231,9 @@ mutation CreatePage($content: String!, $title: String!, $path: String!, $descrip
 
 #### Step 1: Query Page ID
 
-```graphql
-query GetPage($path: String!) {
-  pages {
-    single(path: $path) {
-      id
-      title
-      path
-      description
-      content
-    }
-  }
-}
-```
+**⚠️ IMPORTANT:** `pages.single` requires `id` parameter, NOT `path`. 
 
-**Variables:**
-```json
-{"path": "tech/api/rpc"}
-```
-
-Or query all pages to find by path:
+You must first list all pages to find the ID by path:
 
 ```graphql
 query {
@@ -259,9 +242,39 @@ query {
       id
       path
       title
+      description
     }
   }
 }
+```
+
+Then match the path to find the page ID:
+
+```python
+def get_page_id_by_path(path: str) -> int:
+    """Find page ID by path from pages.list."""
+    query = json.dumps({
+        "query": "{ pages { list { id path title } } }"
+    }).encode()
+    
+    req = urllib.request.Request(
+        WIKI_URL,
+        data=query,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {WIKI_KEY}"
+        },
+        method='POST'
+    )
+    
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read().decode())
+        pages = data.get('data', {}).get('pages', {}).get('list', [])
+        for p in pages:
+            if p.get('path') == path:
+                return p.get('id')
+    return None
+```
 ```
 
 #### Step 2: Update Page
@@ -638,6 +651,7 @@ if page_id:
 **Remember:** 
 - **Create:** Use `pages.create` with all fields including `tags: []` and `description`
 - **Update:** Use `pages.update` with `id`, `content`, `description`, and `tags: []`
-- **Query:** Use `pages.single(path: "...")` to find page ID, or `pages.list` to list all
+- **Query by ID:** Use `pages.single(id: <id>)` to get page details by ID
+- **Find by path:** Use `pages.list` then filter by `path` to find page ID (⚠️ `pages.single` does NOT accept `path` parameter)
 - Always use GraphQL Variables for content to avoid escaping issues
 - Always check `responseResult` for detailed error messages
