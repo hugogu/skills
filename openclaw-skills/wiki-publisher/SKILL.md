@@ -85,7 +85,7 @@ mutation {{
 - Backslashes in code blocks escape incorrectly
 - JSON serialization double-escapes
 
-#### ✅ CORRECT - Use GraphQL Variables
+#### ✅ CORRECT - Use GraphQL Variables (RECOMMENDED)
 
 ```python
 import json
@@ -108,6 +108,11 @@ mutation CreatePage($content: String!, $title: String!, $path: String!) {
         path
         title
       }
+      responseResult {
+        succeeded
+        errorCode
+        message
+      }
     }
   }
 }
@@ -116,7 +121,8 @@ mutation CreatePage($content: String!, $title: String!, $path: String!) {
 variables = {
     "content": raw_content,  # Pass raw content, no preprocessing
     "title": "Page Title",
-    "path": "category/page-name"
+    "path": "category/page-name",
+    "tags": []  # Required - can be empty list
 }
 
 # Let json.dumps handle all escaping automatically
@@ -140,6 +146,32 @@ response = requests.post(
 - GraphQL Variables separate data from query structure
 - Handles quotes, newlines, backslashes, Unicode automatically
 
+#### ✅ ALTERNATIVE - Use Block String (Triple Quotes)
+
+For simple updates when Variables cause issues:
+
+```python
+# Replace any """ in content first
+safe_content = content.replace('"""', '\x00TRIPLE\x00')
+
+mutation = f'''
+mutation {{
+  pages {{
+    update(
+      id: {page_id}
+      content: """{safe_content}"""
+      description: "Updated description"
+      editor: "markdown"
+      tags: []
+    ) {{
+      page {{ id path title }}
+      responseResult {{ succeeded errorCode message }}
+    }}
+  }}
+}}
+'''
+```
+
 ### Create Page
 
 ```graphql
@@ -161,6 +193,11 @@ mutation CreatePage($content: String!, $title: String!, $path: String!, $descrip
         path
         title
       }
+      responseResult {
+        succeeded
+        errorCode
+        message
+      }
     }
   }
 }
@@ -177,31 +214,94 @@ mutation CreatePage($content: String!, $title: String!, $path: String!, $descrip
 }
 ```
 
+**Important:** `tags` must be provided even if empty (`[]`). Some Wiki.js versions require this field.
+
 **Type Requirements:**
 - `$content`: `String!` - Required, raw markdown
 - `$title`: `String!` - Required
 - `$path`: `String!` - Required, URL path
-- `$description`: `String!` - Required
-- `$tags`: `[String]!` - Required non-null array (elements may be null)
+- `$description`: `String!` - **Required** (can be empty string)
+- `$tags`: `[String]!` - **Required** array of strings (can be empty `[]`)
 
 ### Update Page
 
+**Two-step process:**
+1. Query page ID by path
+2. Update page using ID
+
+#### Step 1: Query Page ID
+
 ```graphql
-mutation UpdatePage($id: Int!, $content: String!) {
+query GetPage($path: String!) {
+  pages {
+    single(path: $path) {
+      id
+      title
+      path
+      description
+      content
+    }
+  }
+}
+```
+
+**Variables:**
+```json
+{"path": "tech/api/rpc"}
+```
+
+Or query all pages to find by path:
+
+```graphql
+query {
+  pages {
+    list {
+      id
+      path
+      title
+    }
+  }
+}
+```
+
+#### Step 2: Update Page
+
+```graphql
+mutation UpdatePage($id: Int!, $content: String!, $description: String!) {
   pages {
     update(
       id: $id
       content: $content
-      description: "Updated description"
+      description: $description
       editor: "markdown"
+      tags: []
     ) {
       page {
         id
         path
         title
       }
+      responseResult {
+        succeeded
+        errorCode
+        message
+      }
     }
   }
+}
+```
+
+**⚠️ CRITICAL for Update:**
+- `tags` is **REQUIRED** even if empty `[]`
+- `description` is **REQUIRED** even if empty string `""`
+- Missing either will cause: `Cannot read properties of undefined (reading 'map')`
+
+**Variables:**
+```json
+{
+  "id": 25,
+  "content": "# Updated Content\n\n...",
+  "description": "Updated description"
 }
 ```
 
@@ -258,7 +358,7 @@ def hello()
 """
 ```
 
-**Solution:** Use GraphQL Variables (recommended) or escape each `` ` `` as `\``.
+**Solution:** Use GraphQL Variables (recommended) or escape each `` ` `` as `\`.
 
 #### Pitfall 2: JSON Double-Escaping
 
@@ -266,7 +366,7 @@ def hello()
 # ❌ WRONG - manual escape then JSON serialize
 content_escaped = content.replace('"', '\\"')
 payload = json.dumps({"query": f'..."{content_escaped}"...'})
-# Results in: \\\" (double escaped)
+# Results in: \" (double escaped)
 
 # ✅ CORRECT - pass raw content to variables
 payload = json.dumps({
@@ -296,46 +396,64 @@ Suggest paths based on content type:
 
 ## Workflow
 
+### For New Pages:
 1. **Extract content** - Get markdown from user or generate it
 2. **Clean formatting** - Remove YAML frontmatter if present
 3. **Suggest metadata** - Propose path, tags, description
 4. **Confirm with user** - Show proposed wiki location
-5. **Publish** - Run `{baseDir}/scripts/publish_to_wiki.py publish <file.md> --path <wiki/path>` or execute GraphQL mutation directly using **Variables**
+5. **Create** - Execute `pages.create` mutation with **all required fields**
 6. **Return link** - Provide wiki page URL
+
+### For Existing Pages:
+1. **Query page ID** - Use `pages.single(path: "...")` or `pages.list`
+2. **Get current content** (optional) - For comparison
+3. **Update** - Execute `pages.update` mutation with **id + all required fields**
+4. **Verify** - Check response for success
+5. **Return link** - Provide wiki page URL
 
 ## Error Handling
 
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `ValidationError: Variable $content... invalid value` | String escaping issue | Use Variables + json.dumps |
-| `GraphQLError: Variable $tags of type [String!]` | Tags type mismatch | Use `[String]!` not `[String!]` (Wiki.js expects non-null array, elements can be null) |
+| `Field "create" argument "tags" of type "[String]!" is required` | Missing required tags parameter | Always provide `tags: []` even if empty |
+| `GraphQLError: Variable $tags of type [String]` | Tags type mismatch | Use `[String]!` in mutation signature |
+| `Cannot read properties of undefined (reading 'map')` | Missing `tags` or `description` in update | Add `tags: []` and `description: "..."` |
 | `Unauthorized` | Invalid API key | Check WIKI_KEY env var |
 | `Page already exists` | Path conflict | Use update mutation or different path |
 
-## Example: Complete Python Implementation
+### Debugging Failed Requests
+
+Always check both `errors` array and `responseResult`:
 
 ```python
-import json
-import os
-import requests
+result = response.json()
 
-WIKI_URL = os.environ["WIKI_URL"]   # e.g. https://your-wiki.example.com/graphql
-WIKI_KEY = os.environ["WIKI_KEY"]
+# Check GraphQL-level errors
+if 'errors' in result:
+    for err in result['errors']:
+        print(f"GraphQL Error: {err.get('message')}")
+
+# Check Wiki.js response result
+resp_result = result.get('data', {}).get('pages', {}).get('create', {}).get('responseResult', {})
+if not resp_result.get('succeeded'):
+    print(f"Wiki.js Error {resp_result.get('errorCode')}: {resp_result.get('message')}")
+```
+
+## Example: Create Page (Complete)
+
+```python
+import os
+import json
+import urllib.request
+
+WIKI_URL = os.environ.get("WIKI_URL")  # e.g. https://your-wiki.example.com/graphql
+WIKI_KEY = os.environ.get("WIKI_KEY")
 
 def create_wiki_page(content: str, title: str, path: str, 
                      description: str = "", tags: list = None) -> dict:
     """
     Create a Wiki.js page using GraphQL API.
-    
-    Args:
-        content: Raw markdown content (will be auto-escaped)
-        title: Page title
-        path: URL path (e.g., "tech/security/topic")
-        description: Page description
-        tags: List of tag strings
-    
-    Returns:
-        API response JSON
     """
     query = '''
     mutation CreatePage($content: String!, $title: String!, 
@@ -358,57 +476,168 @@ def create_wiki_page(content: str, title: str, path: str,
             path
             title
           }
+          responseResult {
+            succeeded
+            errorCode
+            message
+          }
         }
       }
     }
     '''
     
     variables = {
-        "content": content,  # Raw content - json.dumps handles escaping
+        "content": content,
         "title": title,
         "path": path,
         "description": description or title,
-        "tags": tags or []
+        "tags": tags if tags is not None else []
     }
     
     payload = json.dumps({
         "query": query,
         "variables": variables
-    })
+    }).encode('utf-8')
     
-    response = requests.post(
+    req = urllib.request.Request(
         WIKI_URL,
+        data=payload,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {WIKI_KEY}"
         },
-        data=payload
+        method='POST'
     )
     
-    return response.json()
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode())
 
 # Usage
-with open('article.md', 'r') as f:
+with open('article.md', 'r', encoding='utf-8') as f:
     content = f.read()
 
 result = create_wiki_page(
     content=content,
-    title="Daily Tech News Digest",
-    path="news/daily-tech",
-    description="A daily digest of notable technology news and updates",
-    tags=["news", "technology"]
+    title="软件反模式（Anti-Patterns）",
+    path="tech/patterns/anti_patterns",
+    description="软件工程中常见反模式的识别与规避指南",
+    tags=["软件设计", "反模式", "最佳实践"]
 )
+```
 
-base_url = WIKI_URL.replace('/graphql', '')
-print(f"Created: {base_url}/{result['data']['pages']['create']['page']['path']}")
+## Example: Update Page (Complete)
+
+```python
+import os
+import json
+import urllib.request
+
+WIKI_URL = os.environ.get("WIKI_URL")  # e.g. https://your-wiki.example.com/graphql
+WIKI_KEY = os.environ.get("WIKI_KEY")
+
+def update_wiki_page(page_id: int, content: str, description: str = "") -> dict:
+    """
+    Update a Wiki.js page using GraphQL API.
+    
+    ⚠️ IMPORTANT: tags and description are REQUIRED even if empty!
+    """
+    query = '''
+    mutation UpdatePage($id: Int!, $content: String!, $description: String!) {
+      pages {
+        update(
+          id: $id
+          content: $content
+          description: $description
+          editor: "markdown"
+          tags: []
+        ) {
+          page {
+            id
+            path
+            title
+          }
+          responseResult {
+            succeeded
+            errorCode
+            message
+          }
+        }
+      }
+    }
+    '''
+    
+    variables = {
+        "id": page_id,
+        "content": content,
+        "description": description
+    }
+    
+    payload = json.dumps({
+        "query": query,
+        "variables": variables
+    }).encode('utf-8')
+    
+    req = urllib.request.Request(
+        WIKI_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {WIKI_KEY}"
+        },
+        method='POST'
+    )
+    
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode())
+
+def get_page_id_by_path(path: str) -> int:
+    """Find page ID by path."""
+    query = json.dumps({
+        "query": "{ pages { list { id path title } } }"
+    }).encode()
+    
+    req = urllib.request.Request(
+        WIKI_URL,
+        data=query,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {WIKI_KEY}"
+        },
+        method='POST'
+    )
+    
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read().decode())
+        pages = data.get('data', {}).get('pages', {}).get('list', [])
+        for p in pages:
+            if p.get('path') == path:
+                return p.get('id')
+    return None
+
+# Usage: Update existing page
+with open('wiki_rpc_article.md', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+page_id = get_page_id_by_path("tech/api/rpc")
+if page_id:
+    result = update_wiki_page(
+        page_id=page_id,
+        content=content,
+        description="RPC协议全面指南，涵盖架构、框架对比、协议设计、性能优化等"
+    )
+    print(f"Updated: https://<wiki-url>/tech/api/rpc")
 ```
 
 ## Reference
 
 - [GraphQL Spec - String Type](https://spec.graphql.org/October2021/#sec-String)
-- See `references/wiki-js-api.md` for complete GraphQL schema
 - Wiki.js API Documentation: https://docs.requarks.io/dev/api
 
 ---
 
-**Remember:** Always use GraphQL Variables for content. Never interpolate strings directly into GraphQL queries.
+**Remember:** 
+- **Create:** Use `pages.create` with all fields including `tags: []` and `description`
+- **Update:** Use `pages.update` with `id`, `content`, `description`, and `tags: []`
+- **Query:** Use `pages.single(path: "...")` to find page ID, or `pages.list` to list all
+- Always use GraphQL Variables for content to avoid escaping issues
+- Always check `responseResult` for detailed error messages
