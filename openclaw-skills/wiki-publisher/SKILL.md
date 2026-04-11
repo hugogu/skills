@@ -132,7 +132,7 @@ payload = json.dumps({
 })
 
 response = requests.post(
-    "https://wiki.hugogu.cn/graphql",
+    WIKI_URL,
     headers={
         "Content-Type": "application/json",
         "Authorization": f"Bearer {WIKI_KEY}"
@@ -447,7 +447,7 @@ import os
 import json
 import urllib.request
 
-WIKI_URL = "https://wiki.hugogu.cn/graphql"
+WIKI_URL = os.environ.get("WIKI_URL")  # e.g. https://your-wiki.example.com/graphql
 WIKI_KEY = os.environ.get("WIKI_KEY")
 
 def create_wiki_page(content: str, title: str, path: str, 
@@ -532,7 +532,7 @@ import os
 import json
 import urllib.request
 
-WIKI_URL = "https://wiki.hugogu.cn/graphql"
+WIKI_URL = os.environ.get("WIKI_URL")  # e.g. https://your-wiki.example.com/graphql
 WIKI_KEY = os.environ.get("WIKI_KEY")
 
 def update_wiki_page(page_id: int, content: str, description: str = "") -> dict:
@@ -625,7 +625,7 @@ if page_id:
         content=content,
         description="RPC协议全面指南，涵盖架构、框架对比、协议设计、性能优化等"
     )
-    print(f"Updated: https://wiki.hugogu.cn/tech/api/rpc")
+    print(f"Updated: https://<wiki-url>/tech/api/rpc")
 ```
 
 ## Reference
