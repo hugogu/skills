@@ -63,7 +63,7 @@ echo ".mr-review/" >> .gitignore
 
 ## 工作原理
 
-1. **获取MR数据**: 使用GitLab API获取MR信息、diff和现有comments，输出到 `.mr-review/`
+1. **获取MR数据**: **不直接网络请求 GitLab 页面**，而是通过本地脚本调用 GitLab API，输出到 `.mr-review/`
 2. **LLM直接分析**: 将diff、现有comments和checklist交给LLM；除编码规范外，**重点审查逻辑合理性**（分支完备性、状态一致性、并发安全、数值边界、幂等性等）
 3. **过滤重复**: 对比现有comments，避免重复
 4. **发布评论**: 

@@ -47,7 +47,11 @@ Review checklist采用分层配置：
 
 ### Step 1: Gather Information
 
-从用户获取必需信息：
+**⚠️ 重要：不要尝试直接通过网络请求（WebFetch / curl）访问 GitLab URL。**
+
+许多 GitLab 实例位于内网或需要特殊认证，直接网络请求会失败（如 `Unable to verify if domain is safe to fetch`）。**正确的做法是：立即解析 URL 参数，然后使用本地的 `fetch_mr.py` 脚本配合 `GITLAB_TOKEN` 调用 GitLab API。**
+
+从用户获取或从提供的 MR URL 中解析必需信息：
 
 ```
 必需参数：
