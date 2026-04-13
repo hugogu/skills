@@ -19,7 +19,7 @@ description: |
 2. 使用LLM直接分析diff，基于checklist和best practice发现代码问题
 3. 过滤已有comments避免重复
 4. 在MR上留下inline comments（针对具体代码行）
-5. 发布整体review总结
+5. 发布带整体质量评级的review总结
 
 ## Prerequisites
 
@@ -57,63 +57,39 @@ Review checklist采用分层配置：
 - token: GitLab Personal Access Token（可选，优先使用GITLAB_TOKEN环境变量）
 ```
 
-检查token可用性（使用Python，跨平台）：
+检查token可用性（不要写wrapper脚本，直接用单行命令）：
 
-```python
-import os
-token = os.environ.get("GITLAB_TOKEN", "")
-print(f"Token available: {'yes' if token else 'no'}")
-print(f"Token length: {len(token)}")
+```bash
+python3 -c "import os; t=os.environ.get('GITLAB_TOKEN',''); print('yes' if t else 'no', len(t))"
 ```
 
 如果token不可用，请用户先设置环境变量 `GITLAB_TOKEN` 或提供token。
 
 ### Step 2: Fetch MR Data
 
-使用Python脚本获取MR数据。此方式跨平台（Windows/macOS/Linux）：
+**不要写 Python wrapper，直接运行以下命令**（根据环境用 `python` 或 `python3`）：
 
-```python
-import os
-import re
-import subprocess
-import sys
-import tempfile
-
-gitlab_url = "<用户提供的gitlab_url>"
-project_path = "<用户提供的project_path>"
-mr_iid = <用户提供的mr_iid>
-token = os.environ.get("GITLAB_TOKEN", "<用户提供的token>")
-
-output_dir = tempfile.mkdtemp(prefix="mr_review_")
-script_path = os.path.join("skills", "gitlab-mr-review", "scripts", "fetch_mr.py")
-
-result = subprocess.run(
-    [
-        sys.executable, script_path,
-        "--gitlab-url", gitlab_url,
-        "--project", project_path,
-        "--mr-iid", str(mr_iid),
-        "--token", token,
-        "--output-dir", output_dir,
-    ],
-    capture_output=True,
-    text=True,
-)
-
-print(result.stdout)
-if result.stderr:
-    print(result.stderr, file=sys.stderr)
-
-if result.returncode != 0:
-    print("Failed to fetch MR data", file=sys.stderr)
-    sys.exit(1)
-
-match = re.search(r"OUTPUT_DIR:\s*(.+)", result.stdout)
-fetched_dir = match.group(1).strip() if match else output_dir
-print(f"Data directory: {fetched_dir}")
+```bash
+python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --mr-iid 42 \
+  --token "$GITLAB_TOKEN" \
+  --output-dir ./mr_data_42
 ```
 
-这会生成以下文件（均在 `fetched_dir` 中）：
+Windows PowerShell 示例：
+
+```powershell
+python skills/gitlab-mr-review/scripts/fetch_mr.py `
+  --gitlab-url https://gitlab.com `
+  --project group/project `
+  --mr-iid 42 `
+  --token $env:GITLAB_TOKEN `
+  --output-dir ./mr_data_42
+```
+
+输出目录 `./mr_data_42` 下会生成：
 - `mr_data.json`: 合并数据（mr_info + changes + existing_comments + metadata）
 - `mr_info.json`: MR基本信息
 - `changes.json`: 变更文件列表及每个文件的diff
@@ -158,6 +134,18 @@ print(f"Data directory: {fetched_dir}")
    - `reference`: 参考链接（可选）
    - `base_sha`, `head_sha`, `start_sha`: 从metadata中获取
 
+**查找有效行号的快捷方式**：
+如果不知道某行精确的 `+` 行号，可以直接运行：
+
+```bash
+python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
+  --changes-file ./mr_data_42/changes.json \
+  --file "FooService.java" \
+  --context 2
+```
+
+这会输出该文件所有可评论的 `+` 行及其前后 2 行上下文，直接复制行号即可。
+
 **特别注意的常见陷阱**：
 - `application.yml`、`.properties`、环境配置文件中出现的端口变更、超时变更、本地路径等，很可能是本地开发配置误提交，应标记为 `warning`。
 - 注解冗余（如Java中同时使用 `@Service` 和 `@Component`）、注释残留调试标记、魔法数字、缺少泛型参数、使用 `System.out.println` 等。
@@ -166,7 +154,7 @@ print(f"Data directory: {fetched_dir}")
 
 ### Step 5: Generate Review Comments JSON
 
-将LLM分析结果整理为如下JSON结构，并保存到文件：
+将LLM分析结果整理为如下JSON结构，并保存到文件 `./mr_42_comments.json`：
 
 ```json
 {
@@ -178,7 +166,8 @@ print(f"Data directory: {fetched_dir}")
     "detected_language": "java",
     "total_files": 5,
     "total_additions": 120,
-    "total_deletions": 30
+    "total_deletions": 30,
+    "has_conflicts": false
   },
   "comments": [
     {
@@ -195,79 +184,60 @@ print(f"Data directory: {fetched_dir}")
   ],
   "stats": {
     "total_issues": 1,
-    "by_severity": {
-      "critical": 0,
-      "warning": 1,
-      "info": 0
-    },
-    "by_type": {
-      "code_consistency": 1
-    }
+    "by_severity": {"critical": 0, "warning": 1, "info": 0},
+    "by_type": {"code_consistency": 1}
   }
 }
 ```
 
-使用Python保存JSON：
+如果 MR 存在合并冲突，请在 `metadata.has_conflicts` 中标记为 `true`（用于在 Summary 中高亮）。
 
-```python
-import json
-import os
-import tempfile
+**不要自己写 Python 脚本来保存 JSON**，直接使用 `Write` 工具写入文件即可。
 
-comments_file = os.path.join(tempfile.gettempdir(), f"mr_{mr_iid}_comments.json")
-with open(comments_file, "w", encoding="utf-8") as f:
-    json.dump(review_data, f, indent=2, ensure_ascii=False)
+### Step 6: Validate Line Numbers (MUST DO)
 
-print(f"Comments saved to: {comments_file}")
+**发布前必须验证行号**，否则极有可能因为行号不在有效 diff 范围内而 400 失败。直接运行：
+
+```bash
+python3 skills/gitlab-mr-review/scripts/validate_comments.py \
+  --changes-file ./mr_data_42/changes.json \
+  --comments-file ./mr_42_comments.json \
+  --output ./mr_42_comments_validated.json
 ```
 
-### Step 6: Post Review Comments
+如果验证通过，会输出 `Validated: X/Y comments valid`。
+如果存在无效行号，脚本会打印具体问题和最近的有效行号建议。你可以：
+- 手动修正 JSON 中的行号后重新验证；或
+- 加上 `--auto-fix` 参数让脚本自动调整到最近的有效行号（可能会偏离原意，谨慎使用）。
 
-先使用 `--dry-run` 预览：
+### Step 7: Post Review Comments
 
-```python
-import os
-import subprocess
-import sys
+**先 `--dry-run` 预览**（强烈建议）：
 
-script_path = os.path.join("skills", "gitlab-mr-review", "scripts", "post_comments.py")
-subprocess.run([
-    sys.executable, script_path,
-    "--gitlab-url", gitlab_url,
-    "--project", project_path,
-    "--mr-iid", str(mr_iid),
-    "--token", token,
-    "--comments-file", comments_file,
-    "--metadata-file", os.path.join(fetched_dir, "metadata.json"),
-    "--dry-run",
-])
+```bash
+python3 skills/gitlab-mr-review/scripts/post_comments.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --mr-iid 42 \
+  --token "$GITLAB_TOKEN" \
+  --comments-file ./mr_42_comments_validated.json \
+  --metadata-file ./mr_data_42/metadata.json \
+  --dry-run
 ```
 
 确认无误后，正式发布：
 
-```python
-import os
-import subprocess
-import sys
-
-script_path = os.path.join("skills", "gitlab-mr-review", "scripts", "post_comments.py")
-result = subprocess.run([
-    sys.executable, script_path,
-    "--gitlab-url", gitlab_url,
-    "--project", project_path,
-    "--mr-iid", str(mr_iid),
-    "--token", token,
-    "--comments-file", comments_file,
-    "--metadata-file", os.path.join(fetched_dir, "metadata.json"),
-])
-
-if result.returncode == 0:
-    print("Review posted successfully")
-else:
-    print("Some comments may have failed to post", file=sys.stderr)
+```bash
+python3 skills/gitlab-mr-review/scripts/post_comments.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --mr-iid 42 \
+  --token "$GITLAB_TOKEN" \
+  --comments-file ./mr_42_comments_validated.json \
+  --metadata-file ./mr_data_42/metadata.json
 ```
 
-`post_comments.py` 会自动处理单条comment失败的情况（如行号不在有效diff范围内时会跳过并继续发布其余评论）。
+`post_comments.py` 会自动跳过无法发布的行（如行号错误），并继续发布其余评论和 Summary。
 
 ## Comment Format
 
@@ -312,15 +282,16 @@ else:
 ### 执行流程
 
 1. 解析MR URL，提取项目路径和MR IID
-2. 检查环境变量 `GITLAB_TOKEN`（使用Python脚本，跨平台）
+2. 检查环境变量 `GITLAB_TOKEN`
 3. 如果没有token，询问用户提供
-4. 运行 `fetch_mr.py` 获取MR数据到一个临时目录
+4. **直接运行 CLI 命令** `fetch_mr.py` 获取MR数据到 `./mr_data_42`
 5. 读取 `metadata.json` 和 `changes.diff`
 6. 检测编程语言，读取对应checklist
-7. **使用LLM直接分析diff**，生成review comments JSON
-8. 运行 `post_comments.py --dry-run` 预览
-9. 确认后发布inline comments和summary comment
-10. 向用户报告review结果摘要
+7. **使用LLM直接分析diff**，生成 `mr_42_comments.json`
+8. **直接运行 CLI 命令** `validate_comments.py` 验证行号
+9. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
+10. 确认后正式发布inline comments和summary comment
+11. 向用户报告review结果摘要
 
 ### 输出示例
 
@@ -332,6 +303,8 @@ else:
 **Reviewed**: feat: add user authentication (java)
 **Files Changed**: 5 | **Additions**: 120 | **Deletions**: 30
 
+### 整体质量评级: 🟡 C (Fair)
+
 ### 发现的问题
 
 | Severity | Count |
@@ -339,6 +312,7 @@ else:
 | 🔴 Critical | 1 |
 | 🟡 Warning | 3 |
 | 🔵 Info | 2 |
+| **Total** | **6** |
 
 ### 问题类别
 
@@ -350,6 +324,10 @@ else:
 
 🔴 `src/main/java/com/example/AuthController.java:23` - 用户输入未转义直接拼接到SQL查询
 🟡 `src/main/java/com/example/Utils.java:45` - 函数超过50行，建议拆分
+
+### 评审意见
+
+当前代码存在 **1** 个 critical 问题，强烈建议修复后再合并。
 
 ### 建议行动
 
@@ -369,7 +347,7 @@ else:
 - **404 Not Found**: MR不存在或已删除
 - **403 Forbidden**: 没有review权限
 - **API Rate Limit**: 遇到rate limit时等待并重试
-- **400 Bad request - line_code can't be blank**: 行号不在有效diff范围内。`post_comments.py` 会自动跳过该条comment并继续发布其余评论。分析时应确保行号指向diff中的新增/修改行。
+- **400 Bad request - line_code can't be blank**: 行号不在有效diff范围内。已通过 `validate_comments.py` 前置校验基本规避；若仍发生，`post_comments.py` 会自动跳过并继续。
 
 ### Recovery
 
@@ -377,7 +355,31 @@ else:
 - MR不存在：确认MR编号和项目路径
 - 权限问题：建议用户检查项目成员权限
 - Rate limit：显示等待时间，稍后重试
-- 行号问题：检查diff hunk中的新文件行号，确保指向 `+` 行
+- 行号问题：运行 `show_diff_lines.py` 查看精确行号，修正后重新验证
+
+### Command Failure Handling（重要）
+
+**禁止因为某个 CLI 命令失败就终止整个 review 任务。** 当脚本返回非 0 exit code 或抛出异常时，必须：
+
+1. **读取 stdout + stderr 分析原因**
+2. **根据错误类型采取对应措施**：
+
+| 失败场景 | 处理策略 |
+|---------|---------|
+| `fetch_mr.py` 失败（401/403/404） | 向用户解释原因，请求确认 token/URL/权限，然后重试 |
+| `fetch_mr.py` 失败（网络超时） | 等待 3-5 秒后重试一次；若仍失败，向用户说明网络问题 |
+| `show_diff_lines.py` 失败 | 该脚本为辅助工具，失败不影响主流程。可直接读取 `changes.json` 手动分析 |
+| `validate_comments.py` 失败（存在无效行号） | **必须**修正 JSON 中的行号（或换用 `--auto-fix`），然后重新验证，直到通过 |
+| `post_comments.py` 失败（summary 或部分 inline 失败） | 分析日志：如果是单条 400 被跳过，其余成功，则任务已完成；如果是批量 401/403，向用户说明 |
+
+3. **重试规范**：
+   - 网络类错误（timeout、connection reset）可自动重试 **1 次**
+   - 权限/配置类错误（401、403、MR 不存在）不要盲重试，先与用户确认
+   - 行号类错误不要重试，必须修正数据
+
+4. **何时可以停止**：
+   - 只有 **token 完全不可用且用户无法提供**、或 **MR 确实不存在**、或 **网络完全不可达** 时，才向用户说明情况并停止后续步骤
+   - 其他任何情况（包括部分评论发布失败）都应继续或恢复执行
 
 ## Best Practices
 
@@ -386,13 +388,13 @@ else:
 3. **Context Awareness**: 考虑代码的上下文和业务逻辑
 4. **Language Specific**: 遵循各语言的community standards
 5. **Team Conventions**: 尊重团队已有的代码风格约定
-6. **跨平台兼容**: 所有操作均通过Python脚本完成，避免使用bash特有语法
+6. **禁止写wrapper**: 所有操作通过现成的 CLI 脚本直接完成
 
 ## Scripts Reference
 
 ### fetch_mr.py
 
-获取MR的基本信息、diff和现有comments。
+获取MR数据。输出目录中包含 `mr_data.json`（合并数据，方便一次性读取）。
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
@@ -403,17 +405,33 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --output-dir ./mr-data
 ```
 
-输出文件：
-- `mr_data.json`: 合并数据
-- `mr_info.json`: MR基本信息
-- `changes.json`: 变更统计及每文件diff
-- `changes.diff`: 原始diff文本
-- `existing_comments.json`: 现有comments
-- `metadata.json`: 元数据
+### show_diff_lines.py
+
+显示每个文件所有可用于 inline comment 的 `+` 行及行号，支持按文件名过滤和上下文行数。
+
+```bash
+python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
+  --changes-file ./mr-data/changes.json \
+  --file "FooService.java" \
+  --context 2
+```
+
+### validate_comments.py
+
+发布前校验：检查每个 comment 的 `line` 是否对应 diff 中的有效 `+` 行。输出过滤后的 JSON。
+
+```bash
+python3 skills/gitlab-mr-review/scripts/validate_comments.py \
+  --changes-file ./mr-data/changes.json \
+  --comments-file ./comments.json \
+  --output ./comments_validated.json
+```
+
+加 `--auto-fix` 可自动对齐到最近的有效行号。
 
 ### post_comments.py
 
-发布review comments到MR。
+发布 comments 和 Summary 到 MR。支持 `--dry-run` 预览。
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/post_comments.py \
@@ -421,11 +439,9 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --project group/project \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
-  --comments-file ./review-comments.json \
+  --comments-file ./comments_validated.json \
   --metadata-file ./mr-data/metadata.json
 ```
-
-使用 `--dry-run` 预览comments而不实际发布。
 
 ## GitLab API Reference
 

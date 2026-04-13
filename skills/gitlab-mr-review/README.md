@@ -95,7 +95,9 @@ gitlab-mr-review/
 ├── SKILL.md                      # Skill定义文件
 ├── scripts/
 │   ├── fetch_mr.py              # 获取MR数据
-│   └── post_comments.py         # 发布评论
+│   ├── show_diff_lines.py       # 显示可评论的diff行号
+│   ├── validate_comments.py     # 发布前验证行号有效性
+│   └── post_comments.py         # 发布评论及Summary
 ├── references/
 │   ├── checklist-javascript.md  # JS/TS检查清单
 │   ├── checklist-java.md        # Java检查清单
@@ -147,9 +149,33 @@ python3 scripts/fetch_mr.py \
 - `existing_comments.json`: 现有comments
 - `metadata.json`: 元数据（语言、分支等）
 
+### show_diff_lines.py
+
+显示每个文件可用于 inline comment 的 `+` 行及对应的新文件行号，支持按文件名过滤和上下文行数。
+
+```bash
+python3 scripts/show_diff_lines.py \
+  --changes-file ./mr-data/changes.json \
+  --file "FooService.java" \
+  --context 2
+```
+
+### validate_comments.py
+
+发布前**必须运行**的校验脚本。检查每个 comment 的 `line` 是否对应 diff 中的有效 `+` 行，过滤掉无效行号后输出新的 JSON。
+
+```bash
+python3 scripts/validate_comments.py \
+  --changes-file ./mr-data/changes.json \
+  --comments-file ./review-comments.json \
+  --output ./review-comments-validated.json
+```
+
+加 `--auto-fix` 可自动将无效行号对齐到最近的有效行号（谨慎使用）。
+
 ### post_comments.py
 
-发布comments到GitLab MR。
+发布comments到GitLab MR，同时自动生成带**整体质量评级**的 Summary comment。
 
 ```bash
 python3 scripts/post_comments.py \
@@ -157,7 +183,7 @@ python3 scripts/post_comments.py \
   --project group/project \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
-  --comments-file ./review-comments.json \
+  --comments-file ./review-comments-validated.json \
   --metadata-file ./mr-data/metadata.json
 ```
 
@@ -176,6 +202,13 @@ Skill会自动：
 3. 使用相似度算法（>80%）检测相同内容
 4. 跳过已标记为resolved的问题
 5. 只评论新增或修改的代码
+
+## 错误处理原则
+
+- **不要因为 CLI 命令失败就放弃整个 review**
+- `fetch_mr.py` 失败时：分析 stderr 中的错误码（AUTH_ERROR / PERMISSION_ERROR / NOT_FOUND / NETWORK_ERROR），针对性重试或询问用户
+- `validate_comments.py` 失败时：必须修正行号后重新验证
+- `post_comments.py` 部分失败时：只要不是全部 401/403，就视为任务完成并向用户汇报成功/失败明细
 
 ## 扩展自定义规则
 

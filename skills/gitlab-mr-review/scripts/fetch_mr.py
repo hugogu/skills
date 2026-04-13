@@ -265,6 +265,34 @@ def main():
         print(f"  - Existing comments: {len(comments)}")
         print(f"OUTPUT_DIR: {output_dir}")
 
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        if e.code == 401:
+            print(
+                f"AUTH_ERROR: HTTP {e.code} - Token invalid or missing. {error_body}",
+                file=sys.stderr,
+            )
+        elif e.code == 403:
+            print(
+                f"PERMISSION_ERROR: HTTP {e.code} - No permission to access this MR. {error_body}",
+                file=sys.stderr,
+            )
+        elif e.code == 404:
+            print(
+                f"NOT_FOUND: HTTP {e.code} - MR or project not found. {error_body}",
+                file=sys.stderr,
+            )
+        elif e.code == 429:
+            print(
+                f"RATE_LIMIT: HTTP {e.code} - API rate limit exceeded. {error_body}",
+                file=sys.stderr,
+            )
+        else:
+            print(f"HTTP_ERROR: HTTP {e.code} - {error_body}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"NETWORK_ERROR: {e.reason}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"FAILED: {e}", file=sys.stderr)
         sys.exit(1)
