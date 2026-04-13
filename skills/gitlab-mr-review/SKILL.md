@@ -65,7 +65,17 @@ python3 -c "import os; t=os.environ.get('GITLAB_TOKEN',''); print('yes' if t els
 
 如果token不可用，请用户先设置环境变量 `GITLAB_TOKEN` 或提供token。
 
-### Step 2: Fetch MR Data
+### Step 2: Configure Output Directory
+
+为了避免临时 review 文件污染项目目录，**统一使用 `.mr-review/` 作为输出目录**，并在项目 `.gitignore` 中忽略它：
+
+```bash
+echo ".mr-review/" >> .gitignore
+```
+
+如果 `.gitignore` 中已存在则无需重复添加。
+
+### Step 3: Fetch MR Data
 
 **不要写 Python wrapper，直接运行以下命令**（根据环境用 `python` 或 `python3`）：
 
@@ -75,7 +85,7 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --project group/project \
   --mr-iid 42 \
   --token "$GITLAB_TOKEN" \
-  --output-dir ./mr_data_42
+  --output-dir .mr-review/mr_data_42
 ```
 
 Windows PowerShell 示例：
@@ -86,10 +96,10 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
   --project group/project `
   --mr-iid 42 `
   --token $env:GITLAB_TOKEN `
-  --output-dir ./mr_data_42
+  --output-dir .mr-review/mr_data_42
 ```
 
-输出目录 `./mr_data_42` 下会生成：
+输出目录 `.mr-review/mr_data_42` 下会生成：
 - `mr_data.json`: 合并数据（mr_info + changes + existing_comments + metadata）
 - `mr_info.json`: MR基本信息
 - `changes.json`: 变更文件列表及每个文件的diff
@@ -99,7 +109,7 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 读取 `metadata.json` 了解MR概况，读取 `changes.diff` 或 `changes.json` 分析代码变更。
 
-### Step 3: Load Checklist
+### Step 4: Load Checklist
 
 根据 `metadata.json` 中的 `detected_language` 加载对应checklist：
 
@@ -108,7 +118,7 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 使用Read工具读取checklist内容。
 
-### Step 4: LLM Code Analysis
+### Step 5: LLM Code Analysis
 
 将以下信息提供给LLM进行分析：
 - `changes.diff` 或 `changes.json` 中的代码变更
@@ -134,12 +144,22 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
    - `reference`: 参考链接（可选）
    - `base_sha`, `head_sha`, `start_sha`: 从metadata中获取
 
+**逻辑合理性分析（重点）**：
+除编码规范外，必须重点审查以下逻辑问题：
+- **分支完备性**：if/else/switch 是否覆盖所有场景，是否存在隐式遗漏
+- **循环与终止**：循环是否有明确退出条件，是否会死循环或提前终止
+- **状态一致性**：异常发生后对象/状态是否处于合理状态，是否留下半完成修改
+- **并发与时序**：多线程/异步场景下是否存在竞态条件、死锁、时序错误
+- **数值与边界**：除零、溢出、越界、浮点精度、时区处理是否正确
+- **幂等性与副作用**：重复调用是否安全，深/浅拷贝是否导致意外副作用
+- **条件判断陷阱**：短路求值误用、== 与 equals 混用、类型隐式转换
+
 **查找有效行号的快捷方式**：
 如果不知道某行精确的 `+` 行号，可以直接运行：
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
-  --changes-file ./mr_data_42/changes.json \
+  --changes-file .mr-review/mr_data_42/changes.json \
   --file "FooService.java" \
   --context 2
 ```
@@ -152,9 +172,9 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
 - 捕获通用 `Exception` 在业务代码中常见，但如果不是必要的回退逻辑，可酌情标记为 `info` 或 `warning`。
 - 如果 SonarQube 等工具已在现有comments中指出了某问题，不要再重复评论。
 
-### Step 5: Generate Review Comments JSON
+### Step 6: Generate Review Comments JSON
 
-将LLM分析结果整理为如下JSON结构，并保存到文件 `./mr_42_comments.json`：
+将LLM分析结果整理为如下JSON结构，并保存到文件 `.mr-review/mr_42_comments.json`：
 
 ```json
 {
@@ -194,15 +214,15 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
 
 **不要自己写 Python 脚本来保存 JSON**，直接使用 `Write` 工具写入文件即可。
 
-### Step 6: Validate Line Numbers (MUST DO)
+### Step 7: Validate Line Numbers (MUST DO)
 
 **发布前必须验证行号**，否则极有可能因为行号不在有效 diff 范围内而 400 失败。直接运行：
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/validate_comments.py \
-  --changes-file ./mr_data_42/changes.json \
-  --comments-file ./mr_42_comments.json \
-  --output ./mr_42_comments_validated.json
+  --changes-file .mr-review/mr_data_42/changes.json \
+  --comments-file .mr-review/mr_42_comments.json \
+  --output .mr-review/mr_42_comments_validated.json
 ```
 
 如果验证通过，会输出 `Validated: X/Y comments valid`。
@@ -210,7 +230,7 @@ python3 skills/gitlab-mr-review/scripts/validate_comments.py \
 - 手动修正 JSON 中的行号后重新验证；或
 - 加上 `--auto-fix` 参数让脚本自动调整到最近的有效行号（可能会偏离原意，谨慎使用）。
 
-### Step 7: Post Review Comments
+### Step 8: Post Review Comments
 
 **先 `--dry-run` 预览**（强烈建议）：
 
@@ -220,8 +240,8 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --project group/project \
   --mr-iid 42 \
   --token "$GITLAB_TOKEN" \
-  --comments-file ./mr_42_comments_validated.json \
-  --metadata-file ./mr_data_42/metadata.json \
+  --comments-file .mr-review/mr_42_comments_validated.json \
+  --metadata-file .mr-review/mr_data_42/metadata.json \
   --dry-run
 ```
 
@@ -233,8 +253,8 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --project group/project \
   --mr-iid 42 \
   --token "$GITLAB_TOKEN" \
-  --comments-file ./mr_42_comments_validated.json \
-  --metadata-file ./mr_data_42/metadata.json
+  --comments-file .mr-review/mr_42_comments_validated.json \
+  --metadata-file .mr-review/mr_data_42/metadata.json
 ```
 
 `post_comments.py` 会自动跳过无法发布的行（如行号错误），并继续发布其余评论和 Summary。
@@ -284,14 +304,15 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 1. 解析MR URL，提取项目路径和MR IID
 2. 检查环境变量 `GITLAB_TOKEN`
 3. 如果没有token，询问用户提供
-4. **直接运行 CLI 命令** `fetch_mr.py` 获取MR数据到 `./mr_data_42`
-5. 读取 `metadata.json` 和 `changes.diff`
-6. 检测编程语言，读取对应checklist
-7. **使用LLM直接分析diff**，生成 `mr_42_comments.json`
-8. **直接运行 CLI 命令** `validate_comments.py` 验证行号
-9. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
-10. 确认后正式发布inline comments和summary comment
-11. 向用户报告review结果摘要
+4. 确保 `.gitignore` 中忽略了 `.mr-review/`
+5. **直接运行 CLI 命令** `fetch_mr.py` 获取MR数据到 `.mr-review/mr_data_42`
+6. 读取 `metadata.json` 和 `changes.diff`
+7. 检测编程语言，读取对应checklist
+8. **使用LLM直接分析diff**（重点审查逻辑合理性），生成 `.mr-review/mr_42_comments.json`
+9. **直接运行 CLI 命令** `validate_comments.py` 验证行号
+10. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
+11. 确认后正式发布inline comments和summary comment
+12. 向用户报告review结果摘要
 
 ### 输出示例
 
@@ -394,7 +415,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 
 ### fetch_mr.py
 
-获取MR数据。输出目录中包含 `mr_data.json`（合并数据，方便一次性读取）。
+获取MR数据。建议统一输出到 `.mr-review/` 子目录。
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
@@ -402,7 +423,7 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --project group/project \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
-  --output-dir ./mr-data
+  --output-dir .mr-review/mr-data
 ```
 
 ### show_diff_lines.py
@@ -411,7 +432,7 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
-  --changes-file ./mr-data/changes.json \
+  --changes-file .mr-review/mr-data/changes.json \
   --file "FooService.java" \
   --context 2
 ```
@@ -422,9 +443,9 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/validate_comments.py \
-  --changes-file ./mr-data/changes.json \
-  --comments-file ./comments.json \
-  --output ./comments_validated.json
+  --changes-file .mr-review/mr-data/changes.json \
+  --comments-file .mr-review/comments.json \
+  --output .mr-review/comments_validated.json
 ```
 
 加 `--auto-fix` 可自动对齐到最近的有效行号。
@@ -439,8 +460,8 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --project group/project \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
-  --comments-file ./comments_validated.json \
-  --metadata-file ./mr-data/metadata.json
+  --comments-file .mr-review/comments_validated.json \
+  --metadata-file .mr-review/mr-data/metadata.json
 ```
 
 ## GitLab API Reference

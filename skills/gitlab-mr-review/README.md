@@ -37,7 +37,16 @@ Token需要有 `api` 权限。
 - MR编号: 42
 ```
 
-### 3. 项目自定义Checklist
+### 3. 配置输出目录（推荐）
+
+为了避免 review 临时文件污染项目根目录，建议统一使用 `.mr-review/` 子目录，并在 `.gitignore` 中忽略：
+
+```bash
+mkdir -p .mr-review
+echo ".mr-review/" >> .gitignore
+```
+
+### 4. 项目自定义Checklist
 
 在项目根目录创建 `.review-checklist.md` 文件：
 
@@ -54,12 +63,12 @@ Token需要有 `api` 权限。
 
 ## 工作原理
 
-1. **获取MR数据**: 使用GitLab API获取MR信息、diff和现有comments
-2. **LLM直接分析**: 将diff、现有comments和checklist交给LLM，由LLM基于best practice发现代码问题
+1. **获取MR数据**: 使用GitLab API获取MR信息、diff和现有comments，输出到 `.mr-review/`
+2. **LLM直接分析**: 将diff、现有comments和checklist交给LLM；除编码规范外，**重点审查逻辑合理性**（分支完备性、状态一致性、并发安全、数值边界、幂等性等）
 3. **过滤重复**: 对比现有comments，避免重复
 4. **发布评论**: 
    - Inline comments: 针对具体代码行的问题，支持GitLab Suggestions（一键应用建议）
-   - Summary comment: 整体审查总结
+   - Summary comment: 带整体质量评级的审查总结
 
 ## 支持的检查规则
 
@@ -130,7 +139,7 @@ gitlab-mr-review/
 
 ### fetch_mr.py
 
-获取MR的基本信息、diff和现有comments。
+获取MR的基本信息、diff和现有comments。建议输出到 `.mr-review/`。
 
 ```bash
 python3 scripts/fetch_mr.py \
@@ -138,7 +147,7 @@ python3 scripts/fetch_mr.py \
   --project group/project \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
-  --output-dir ./mr-data
+  --output-dir .mr-review/mr-data
 ```
 
 输出文件：
@@ -155,7 +164,7 @@ python3 scripts/fetch_mr.py \
 
 ```bash
 python3 scripts/show_diff_lines.py \
-  --changes-file ./mr-data/changes.json \
+  --changes-file .mr-review/mr-data/changes.json \
   --file "FooService.java" \
   --context 2
 ```
@@ -166,9 +175,9 @@ python3 scripts/show_diff_lines.py \
 
 ```bash
 python3 scripts/validate_comments.py \
-  --changes-file ./mr-data/changes.json \
-  --comments-file ./review-comments.json \
-  --output ./review-comments-validated.json
+  --changes-file .mr-review/mr-data/changes.json \
+  --comments-file .mr-review/review-comments.json \
+  --output .mr-review/review-comments-validated.json
 ```
 
 加 `--auto-fix` 可自动将无效行号对齐到最近的有效行号（谨慎使用）。
@@ -183,8 +192,8 @@ python3 scripts/post_comments.py \
   --project group/project \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
-  --comments-file ./review-comments-validated.json \
-  --metadata-file ./mr-data/metadata.json
+  --comments-file .mr-review/review-comments-validated.json \
+  --metadata-file .mr-review/mr-data/metadata.json
 ```
 
 使用 `--dry-run` 预览comments而不实际发布：
