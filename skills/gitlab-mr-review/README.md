@@ -55,7 +55,7 @@ Token需要有 `api` 权限。
 ## 工作原理
 
 1. **获取MR数据**: 使用GitLab API获取MR信息、diff和现有comments
-2. **代码分析**: 根据检测到的编程语言，应用对应的checklist规则
+2. **LLM直接分析**: 将diff、现有comments和checklist交给LLM，由LLM基于best practice发现代码问题
 3. **过滤重复**: 对比现有comments，避免重复
 4. **发布评论**: 
    - Inline comments: 针对具体代码行的问题，支持GitLab Suggestions（一键应用建议）
@@ -95,7 +95,6 @@ gitlab-mr-review/
 ├── SKILL.md                      # Skill定义文件
 ├── scripts/
 │   ├── fetch_mr.py              # 获取MR数据
-│   ├── analyze_code.py          # 代码分析
 │   └── post_comments.py         # 发布评论
 ├── references/
 │   ├── checklist-javascript.md  # JS/TS检查清单
@@ -141,24 +140,12 @@ python3 scripts/fetch_mr.py \
 ```
 
 输出文件：
+- `mr_data.json`: 合并数据（mr_info + changes + existing_comments + metadata）
 - `mr_info.json`: MR基本信息
-- `changes.json`: 变更统计
+- `changes.json`: 变更统计及每文件diff
 - `changes.diff`: Diff内容
 - `existing_comments.json`: 现有comments
 - `metadata.json`: 元数据（语言、分支等）
-
-### analyze_code.py
-
-分析代码并生成review comments。
-
-```bash
-python3 scripts/analyze_code.py \
-  --changes-file ./mr-data/changes.json \
-  --metadata-file ./mr-data/metadata.json \
-  --existing-comments ./mr-data/existing_comments.json \
-  --default-checklist-dir ./references \
-  --output ./review-comments.json
-```
 
 ### post_comments.py
 

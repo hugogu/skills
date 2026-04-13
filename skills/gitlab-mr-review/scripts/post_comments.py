@@ -64,6 +64,16 @@ def post_inline_comment(
     try:
         make_request(url, token, method="POST", data=json.dumps(data).encode("utf-8"))
         return True
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        if e.code == 400 and "line_code" in error_body:
+            print(
+                f"  ✗ Skipped (line {comment.get('line')} is not a valid diff line - ensure it points to an added/modified line)",
+                file=sys.stderr,
+            )
+        else:
+            print(f"HTTP Error {e.code}: {error_body}", file=sys.stderr)
+        return False
     except Exception as e:
         print(f"Failed to post comment: {e}", file=sys.stderr)
         return False

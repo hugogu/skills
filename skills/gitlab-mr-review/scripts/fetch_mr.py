@@ -247,15 +247,26 @@ def main():
         with open(output_dir / "metadata.json", "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
+        # Write combined data file for easier consumption
+        combined_data = {
+            "mr_info": mr_info,
+            "changes": changes,
+            "existing_comments": comments,
+            "metadata": metadata,
+        }
+        with open(output_dir / "mr_data.json", "w", encoding="utf-8") as f:
+            json.dump(combined_data, f, indent=2, ensure_ascii=False)
+
         print(f"✓ Successfully fetched MR data")
         print(f"  - Language: {detected_lang}")
         print(f"  - Files: {changes['changes']}")
         print(f"  - Additions: {changes['additions']}")
         print(f"  - Deletions: {changes['deletions']}")
         print(f"  - Existing comments: {len(comments)}")
+        print(f"OUTPUT_DIR: {output_dir}")
 
     except Exception as e:
-        print(f"✗ Failed to fetch MR data: {e}", file=sys.stderr)
+        print(f"FAILED: {e}", file=sys.stderr)
         sys.exit(1)
 
 
