@@ -1,0 +1,150 @@
+{
+  "skill_name": "gitlab-mr-review",
+  "evals": [
+    {
+      "id": 1,
+      "name": "review-javascript-mr",
+      "prompt": "帮我review一下GitLab上的这个MR：https://gitlab.com/mycompany/myproject/-/merge_requests/42。这个MR修改了src/auth.js和src/utils.js文件，主要添加了用户认证功能。",
+      "expected_output": "Skill应该能够：1) 解析GitLab MR URL提取项目路径和MR IID；2) 识别编程语言为JavaScript；3) 使用fetch_mr.py获取MR信息；4) 读取JavaScript checklist；5) 分析代码问题（如var使用、eval风险等）；6) 生成review comments；7) 过滤重复comments；8) 发布inline comments和summary",
+      "files": [],
+      "assertions": [
+        {
+          "name": "parses_gitlab_url",
+          "description": "能够正确解析GitLab MR URL",
+          "check": "url_parsing"
+        },
+        {
+          "name": "detects_javascript",
+          "description": "检测到编程语言为JavaScript",
+          "check": "language_detection"
+        },
+        {
+          "name": "uses_correct_checklist",
+          "description": "使用JavaScript checklist进行分析",
+          "check": "checklist_usage"
+        },
+        {
+          "name": "checks_security_issues",
+          "description": "检查安全问题（XSS、eval等）",
+          "check": "security_checks"
+        },
+        {
+          "name": "avoids_duplicates",
+          "description": "避免发布重复的comments",
+          "check": "duplicate_filtering"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "review-python-security",
+      "prompt": "检查这个Python项目的MR是否有安全问题：https://gitlab.com/example/python-app/-/merge_requests/15。特别关注SQL注入和eval的使用。",
+      "expected_output": "Skill应该：1) 识别为Python项目；2) 重点检查安全问题；3) 检测SQL注入风险（字符串拼接SQL）；4) 检测eval/exec使用；5) 标记critical级别的安全问题；6) 提供具体的修复建议",
+      "files": [],
+      "assertions": [
+        {
+          "name": "detects_sql_injection",
+          "description": "检测到SQL注入风险",
+          "check": "sql_injection_detection"
+        },
+        {
+          "name": "detects_eval_usage",
+          "description": "检测到eval/exec的使用",
+          "check": "eval_detection"
+        },
+        {
+          "name": "critical_severity",
+          "description": "安全问题标记为critical级别",
+          "check": "severity_assignment"
+        },
+        {
+          "name": "provides_fix_suggestion",
+          "description": "提供具体的修复建议",
+          "check": "fix_suggestions"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "avoid-duplicate-comments",
+      "prompt": "对这个GitLab MR进行review：https://gitlab.com/team/java-service/-/merge_requests/23。注意之前已经review过一次了，避免添加重复的comments。",
+      "expected_output": "Skill应该：1) 获取现有的review comments；2) 对比新发现的问题和已有comments；3) 只添加新的、未评论过的问题；4) 如果问题已标记为resolved，不再重复comment；5) 在summary中说明这是incremental review",
+      "files": [],
+      "assertions": [
+        {
+          "name": "fetches_existing_comments",
+          "description": "获取现有的comments",
+          "check": "fetch_existing"
+        },
+        {
+          "name": "filters_duplicates",
+          "description": "过滤掉重复的comments",
+          "check": "duplicate_filtering"
+        },
+        {
+          "name": "respects_resolved_status",
+          "description": "尊重已resolved的状态",
+          "check": "resolved_check"
+        },
+        {
+          "name": "incremental_review_summary",
+          "description": "Summary说明是增量review",
+          "check": "incremental_summary"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "use-custom-checklist",
+      "prompt": "review这个MR：https://gitlab.com/company/project/-/merge_requests/8。项目中有自定义的.review-checklist.md文件，请使用项目的checklist规则而不是默认的。",
+      "expected_output": "Skill应该：1) 先检查项目根目录是否有.review-checklist.md；2) 如果存在，解析并合并自定义规则；3) 应用自定义规则进行review；4) 禁用的规则不再检查；5) 在summary中提及使用了项目自定义规则",
+      "files": [],
+      "assertions": [
+        {
+          "name": "reads_custom_checklist",
+          "description": "读取项目自定义checklist",
+          "check": "custom_checklist"
+        },
+        {
+          "name": "applies_custom_rules",
+          "description": "应用自定义规则",
+          "check": "custom_rules"
+        },
+        {
+          "name": "respects_disabled_rules",
+          "description": "尊重禁用的规则",
+          "check": "disabled_rules"
+        },
+        {
+          "name": "mentions_custom_config",
+          "description": "在输出中提及使用了自定义配置",
+          "check": "custom_config_mention"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "multi-language-support",
+      "prompt": "这个MR同时修改了JavaScript和Python文件，请帮忙review：https://gitlab.com/org/fullstack/-/merge_requests/55。",
+      "expected_output": "Skill应该：1) 识别MR中包含多种编程语言；2) 为每种语言应用对应的checklist；3) 正确分类不同语言文件的问题；4) Summary中按语言分组统计问题",
+      "files": [],
+      "assertions": [
+        {
+          "name": "detects_multiple_languages",
+          "description": "检测到多种编程语言",
+          "check": "multi_language"
+        },
+        {
+          "name": "uses_appropriate_checklist",
+          "description": "为每种语言使用对应的checklist",
+          "check": "language_specific_checklist"
+        },
+        {
+          "name": "language_grouped_summary",
+          "description": "Summary按语言分组",
+          "check": "grouped_summary"
+        }
+      ]
+    }
+  ]
+}
