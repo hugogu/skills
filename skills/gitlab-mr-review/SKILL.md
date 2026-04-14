@@ -157,6 +157,18 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 - `existing_comments.json` 中的现有评论
 - checklist 内容
 
+**Review Mindset（核心要求）**
+
+你不是一台静态扫描仪，而是一位正在帮 teammate review 代码的资深工程师。**checklist 只是参考和灵感来源，不是必须逐条勾选的表格。** 请遵循以下思维方式：
+
+1. **先理解业务意图**：用 1-2 句话总结这段 diff 在做什么业务层面的变更（例如：新增交易文件上传功能，将文件写入 DFS 并记录日志）。
+2. **再用常识判断**：这段代码在业务上是否说得通？有没有明显违背常识的硬编码？例如：交易凭证/合同类文件写死 `SEVEN_DAY`（7天过期）、支付金额用浮点数计算、给普通用户接口配置了管理员权限等。
+3. **最后参考 checklist**：从上面的 checklist 中汲取可能被遗漏的角度（架构、并发、安全、数据一致性），但 **不要为了找问题而找问题**。如果代码在业务和设计上都是合理的，可以只给出少量 info 甚至不评论。
+
+**常见失败模式**：
+- ❌ **Checklist-driven scanning**：逐条对照 checklist 找茬，结果忽略了代码本身的业务语义（如没发现交易材料被硬编码为 7 天过期）。
+- ✅ **Engineer common sense**：先问“这段代码在业务上是否合理？”，再问“设计上有没有更好的做法？”
+
 **分析要求**：
 
 1. **只关注新增/修改的代码**（diff中以 `+` 开头的行）。
@@ -164,13 +176,13 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 3. **避免重复评论**：如果 `existing_comments.json` 中已有相同文件、相近行号、相似描述的评论，不要再提。
 4. **severity 分级**：
    - `critical`: 阻塞性问题（安全漏洞、明显bug、BLOCKER级问题）
-   - `warning`: 需要关注（设计缺陷、潜在逻辑问题、不应提交的本地配置等）
+   - `warning`: 需要关注（设计缺陷、潜在逻辑问题、不应提交的本地配置、违背业务常识的硬编码等）
    - `info`: 建议性意见（可以忽略）
 5. **comment 格式**：每个comment必须包含以下字段：
    - `file_path`: 文件路径（如 `src/main/java/com/example/Foo.java`）
    - `line`: 新文件中的行号（整数）
    - `severity`: `critical` | `warning` | `info`
-   - `type`: 问题类型，如 `security`, `logic`, `architecture`, `design`, `data_integrity`, `maintainability`
+   - `type`: 问题类型，如 `security`, `logic`, `architecture`, `design`, `data_integrity`, `maintainability`, `business_semantics`
    - `message`: 问题描述（中文或英文，视项目语言而定）
    - `suggestion`: 改进建议（可选，使用GitLab suggestion格式时提供具体代码）
    - `reference`: 参考链接（可选）
@@ -183,14 +195,19 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 **重点审查方向（按优先级排序）**：
 
-1. **架构与设计（architecture / design）**
+1. **业务语义合理性（business_semantics）**
+   - 硬编码的枚举、常量、默认值是否符合当前业务场景的常识
+   - 文案、提示语是否准确，是否可能误导用户
+   - 业务规则（折扣、费率、有效期、保存时长）是否应配置化
+
+2. **架构与设计（architecture / design）**
    - 类/函数职责是否单一，是否存在 God Class / God Method
    - 抽象层次是否合理，接口是否稳定，实现细节是否泄漏到上层
    - 是否符合 SOLID 原则（开闭、依赖倒置、里氏替换等）
    - 是否可以用更简洁的设计模式消除重复 if/else 或重复流程
    - 分层是否清晰，领域层是否依赖了基础设施层
 
-2. **逻辑正确性（logic）**
+3. **逻辑正确性（logic）**
    - **分支完备性**：if/else/switch 是否覆盖所有业务场景，是否存在隐式遗漏
    - **循环与终止**：是否有明确退出条件，是否会死循环或提前终止
    - **状态一致性**：异常发生后对象/事务状态是否合理，是否存在半完成修改
@@ -199,13 +216,13 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
    - **幂等性与副作用**：重复调用是否安全，深/浅拷贝是否导致意外副作用
    - **条件判断陷阱**：短路求值误用、== 与 equals 混用、类型隐式转换
 
-3. **安全（security）**
+4. **安全（security）**
    - 需要结合业务上下文判断的越权、数据泄漏、动态 SQL/命令注入、路径遍历等问题
 
-4. **数据一致性（data_integrity）**
+5. **数据一致性（data_integrity）**
    - 事务边界、缓存一致性、并发写控制、数据校验链是否完整
 
-5. **可维护性与扩展性（maintainability）**
+6. **可维护性与扩展性（maintainability）**
    - 硬编码业务规则、重复逻辑、接口稳定性、新增功能的改动范围
 
 **查找有效行号的快捷方式**：
@@ -247,12 +264,12 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
   },
   "comments": [
     {
-      "file_path": "src/main/java/com/example/Foo.java",
-      "line": 18,
+      "file_path": "src/main/java/com/example/TradeFileUploadServiceImpl.java",
+      "line": 106,
       "severity": "warning",
-      "type": "code_consistency",
-      "message": "同时使用了 @Service 和 @Component 注解，存在冗余",
-      "suggestion": "移除 @Component 注解，保留 @Service 即可",
+      "type": "business_semantics",
+      "message": "交易材料上传场景下硬编码了 SEVEN_DAY（7天过期），这与交易凭证通常需长期保存的业务常识不符",
+      "suggestion": "建议将文件保存时长作为业务配置，或根据材料类型选择对应的 FileGroup 枚举值",
       "base_sha": "...",
       "head_sha": "...",
       "start_sha": "..."
@@ -261,7 +278,7 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
   "stats": {
     "total_issues": 1,
     "by_severity": {"critical": 0, "warning": 1, "info": 0},
-    "by_type": {"code_consistency": 1}
+    "by_type": {"business_semantics": 1}
   }
 }
 ```
