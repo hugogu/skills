@@ -38,7 +38,12 @@ def make_request(
 
 
 def post_inline_comment(
-    gitlab_url: str, project_path: str, mr_iid: int, token: str, comment: Dict
+    gitlab_url: str,
+    project_path: str,
+    mr_iid: int,
+    token: str,
+    comment: Dict,
+    model: Optional[str] = None,
 ) -> bool:
     """Post an inline comment to MR."""
     encoded_path = urllib.parse.quote(project_path, safe="")
@@ -59,7 +64,7 @@ def post_inline_comment(
     if comment.get("start_line"):
         position["old_line"] = comment.get("start_line")
 
-    data = {"body": format_comment_body(comment), "position": position}
+    data = {"body": format_comment_body(comment, model=model), "position": position}
 
     try:
         make_request(url, token, method="POST", data=json.dumps(data).encode("utf-8"))
@@ -84,9 +89,6 @@ def post_inline_comment(
     except Exception as e:
         print(f"Failed to post comment: {e}", file=sys.stderr)
         return False
-    except Exception as e:
-        print(f"Failed to post comment: {e}", file=sys.stderr)
-        return False
 
 
 def post_general_comment(
@@ -106,7 +108,7 @@ def post_general_comment(
         return False
 
 
-def format_comment_body(comment: Dict) -> str:
+def format_comment_body(comment: Dict, model: Optional[str] = None) -> str:
     """Format comment body with markdown and optional suggestion block."""
     severity = comment.get("severity", "info")
     issue_type = comment.get("type", "issue")
@@ -140,6 +142,9 @@ def format_comment_body(comment: Dict) -> str:
     if reference:
         lines.extend(["", f"**参考**: {reference}"])
 
+    if model:
+        lines.extend(["", "---", f"*Reviewed by {model}*"])
+
     return "\n".join(lines)
 
 
@@ -166,6 +171,8 @@ def generate_summary_comment(review_data: Dict) -> str:
     """Generate summary comment markdown."""
     comments = review_data.get("comments", [])
     metadata = review_data.get("metadata", {})
+    model = metadata.get("model")
+    token_usage = metadata.get("token_usage")
 
     # Group by severity
     severity_counts = {"critical": 0, "warning": 0, "info": 0}
@@ -261,11 +268,19 @@ def generate_summary_comment(review_data: Dict) -> str:
     if severity_counts["info"] > 0:
         lines.append("- [ ] 酌情参考 info 级别的建议")
 
+    footer_parts = ["*This review was generated automatically."]
+    if model:
+        footer_parts.append(f"Reviewed by {model}.")
+    if token_usage is not None:
+        footer_parts.append(f"Total tokens: {token_usage}.")
+    footer_parts.append("Please feel free to discuss any suggestions.*")
+    footer = " ".join(footer_parts)
+
     lines.extend(
         [
             "",
             "---",
-            "*This review was generated automatically. Please feel free to discuss any suggestions.*",
+            footer,
         ]
     )
 
@@ -315,7 +330,10 @@ def main():
             with open(metadata_path, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
 
-    review_data["metadata"] = metadata
+    # Merge metadata: comments-file metadata as base, metadata-file overrides
+    existing_metadata = review_data.get("metadata", {})
+    review_data["metadata"] = {**existing_metadata, **metadata}
+    model = review_data["metadata"].get("model")
 
     if args.dry_run:
         print("\n=== DRY RUN MODE ===\n")
@@ -323,7 +341,7 @@ def main():
         for i, comment in enumerate(comments, 1):
             print(f"\n--- Comment {i} ---")
             print(f"File: {comment.get('file_path')}:{comment.get('line')}")
-            print(f"Body:\n{format_comment_body(comment)}")
+            print(f"Body:\n{format_comment_body(comment, model=model)}")
 
         print("\n=== Summary Comment ===\n")
         print(generate_summary_comment(review_data))
@@ -336,7 +354,7 @@ def main():
         print(f"Posting comment on {comment.get('file_path')}:{comment.get('line')}...")
 
         if post_inline_comment(
-            args.gitlab_url, args.project, args.mr_iid, args.token, comment
+            args.gitlab_url, args.project, args.mr_iid, args.token, comment, model=model
         ):
             success_count += 1
             print("  ✓ Posted")

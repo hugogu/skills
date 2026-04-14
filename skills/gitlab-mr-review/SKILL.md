@@ -191,7 +191,9 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
     "total_files": 5,
     "total_additions": 120,
     "total_deletions": 30,
-    "has_conflicts": false
+    "has_conflicts": false,
+    "model": "kimi-for-coding/k2p5",
+    "token_usage": 15234
   },
   "comments": [
     {
@@ -215,6 +217,10 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
 ```
 
 如果 MR 存在合并冲突，请在 `metadata.has_conflicts` 中标记为 `true`（用于在 Summary 中高亮）。
+
+**模型与 Token 信息**：在 `metadata` 中记录本次 review 使用的模型名称和整体 Token 消耗量：
+- `model`: 当前使用的模型名称（如 `kimi-for-coding/k2p5`）
+- `token_usage`: 本次 review 整体消耗的 Token 总量（整数）
 
 **不要自己写 Python 脚本来保存 JSON**，直接使用 `Write` 工具写入文件即可。
 
@@ -361,7 +367,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 - [ ] 酌情参考 info 级别的建议
 
 ---
-*This review was generated automatically. Please feel free to discuss any suggestions.*
+*This review was generated automatically. Reviewed by kimi-for-coding/k2p5. Total tokens: 15234. Please feel free to discuss any suggestions.*
 ```
 
 ## Error Handling
