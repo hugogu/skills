@@ -232,7 +232,7 @@ def generate_summary_comment(review_data: Dict) -> str:
                     msg += "..."
 
                 emoji = "🔴" if comment.get("severity") == "critical" else "🟡"
-                lines.append(f"{emoji} `{file_path}:{line}` - {msg}")
+                lines.append(f"- {emoji} `{file_path}:{line}` - {msg}")
 
         lines.append("")
 
