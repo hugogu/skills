@@ -47,6 +47,7 @@ description: |
 
 ### 重点评论的内容（AI 更擅长）
 
+- **业务语义合理性**：代码变更在业务层面是否合理，逻辑是否符合业务常识，提示语是否准确
 - **架构与设计**：职责划分、抽象层次、SOLID 原则、分层合理性、设计模式选择
 - **逻辑正确性**：分支遗漏、边界条件、并发竞态、幂等性、状态一致性、异常恢复
 - **业务安全**：越权、数据泄漏、动态 SQL/命令注入、路径遍历等需要上下文判断的问题
@@ -102,10 +103,8 @@ python3 -c "import os; t=os.environ.get('GITLAB_TOKEN',''); print('yes' if t els
 为了避免临时 review 文件污染项目目录，**统一使用 `.mr-review/` 作为输出目录**，并在项目 `.gitignore` 中忽略它：
 
 ```bash
-echo ".mr-review/" >> .gitignore
+grep -q ".mr-review/" .gitignore 2>/dev/null || echo ".mr-review/" >> .gitignore
 ```
-
-如果 `.gitignore` 中已存在则无需重复添加。
 
 ### Step 3: Fetch MR Data
 
@@ -161,9 +160,10 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 你不是一台静态扫描仪，而是一位正在帮 teammate review 代码的资深工程师。**checklist 只是参考和灵感来源，不是必须逐条勾选的表格。** 请遵循以下思维方式：
 
-1. **先理解业务意图**：用 1-2 句话总结这段 diff 在做什么业务层面的变更。
-2. **再用常识判断**：这段代码在业务上是否说得通？有没有明显违背常识的硬编码？
+1. **先理解业务意图**：用 1-2 句话总结这段 diff 在做什么业务层面的变更。**从文件名、类名、方法名推断业务场景**。
+2. **再用常识判断**：这段代码在业务上是否说得通？逻辑上在该场景上下文下是否合理？
 3. **最后参考 checklist**：从上面的 checklist 中汲取可能被遗漏的角度（架构、并发、安全、数据一致性），但 **不要为了找问题而找问题**。如果代码在业务和设计上都是合理的，可以只给出少量 info 甚至不评论。
+4. **基于全部变更的整体分析**：不要只盯着某一行代码，忽略了它在整个文件甚至整个MR中的上下文关系。**代码的合理性往往需要结合上下文来判断**。
 
 **常见失败模式**：
 - ❌ **Checklist-driven scanning**：逐条对照 checklist 找茬，结果忽略了代码本身的业务语义。
@@ -171,7 +171,7 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 **分析要求**：
 
-1. **只关注新增/修改的代码**（diff中以 `+` 开头的行）。
+1. **综合分析新增/修改/删除的代码**：通过变化尝试理解变更动机和上下文。
 2. **行号必须准确**：`line` 必须是该代码在新文件中的实际行号（diff hunk中的新文件行号，即 `+` 行对应的行号），**不是** diff文件的物理行号。如果某行是新增文件中的第18行，就写18。
 3. **避免重复评论**：如果 `existing_comments.json` 中已有相同文件、相近行号、相似描述的评论，不要再提。
 4. **severity 分级**：
@@ -188,15 +188,14 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
    - `reference`: 参考链接（可选）
    - `base_sha`, `head_sha`, `start_sha`: 从metadata中获取
 
-**不评论纯风格问题**：
-- 命名规范（camelCase/PascalCase/snake_case）、缩进、空格、分号、行长度、import 顺序等 **不单独提出**，除非它们严重影响了代码可读性或设计意图。
-- 方法/类长度 **一般不评论**，除非已经严重到反映了职责不单一的设计问题。
-- 如果 SonarQube 等工具已在现有comments中指出了风格或简单规范问题，不要再重复评论。
+**不评论静态工具已覆盖的问题**：通过 SonarQube / ESLint / Checkstyle / Pylint 等工具极易发现，AI Review **不单独提出**，除非它们已经导致了实际的业务/设计缺陷。
 
 **重点审查方向（按优先级排序）**：
 
-1. **业务语义合理性（business_semantics）**
-   - 硬编码的枚举、常量、默认值是否符合当前业务场景的常识
+1. **业务语义合理性（business_semantics）—— 最高优先级**
+   - **先看文件名、类名、方法名，推断这段代码的业务场景**。
+   - 然后判断：**代码逻辑是否与该业务场景常识匹配**。如果无法判断是否合理，宁可不评论。
+   - **禁止泛泛而谈**：不要因为"这是硬编码"就评论。必须能说明"在这个业务场景下，这个值为什么是错的或危险的"。
    - 文案、提示语是否准确，是否可能误导用户
    - 业务规则（折扣、费率、有效期、保存时长）是否应配置化
 
@@ -372,6 +371,16 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 
 确认后正式发布（去掉 `--dry-run`）。评论会以 **Discussions** 的形式出现在该 Commit 的页面上。
 
+### Step 9: Cleanup Temporary Files
+
+Review 完成后，**默认清理**本次运行产生的 `.mr-review/` 临时数据，避免文件堆积：
+
+```bash
+rm -rf .mr-review/
+```
+
+如果用户明确要求保留中间文件用于排查，可以跳过此步骤。
+
 ## Comment Format
 
 ### Inline Comment Structure
@@ -426,6 +435,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 10. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
 11. 确认后正式发布inline comments和summary comment
 12. 向用户报告review结果摘要
+13. **清理 `.mr-review/` 临时文件**
 
 ### Commit Review 示例
 
@@ -440,6 +450,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 3. **直接运行 CLI 命令** `fetch_mr.py --commit-sha a1b2c3d4` 获取数据到 `.mr-review/commit_data_a1b2c3d4`
 4. 后续步骤（读取 checklist、LLM 分析、验证行号、dry-run、发布）与 MR Review 完全一致
 5. 向用户报告review结果摘要
+6. **清理 `.mr-review/` 临时文件**
 
 ### 输出示例
 
