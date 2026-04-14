@@ -1,31 +1,31 @@
 ---
 name: gitlab-mr-review
 description: |
-  自动审查GitLab Merge Request并提供基于best practice的代码Review。
-  当用户需要review GitLab MR、进行代码审查、检查代码质量时使用此skill。
+  自动审查GitLab Merge Request或Commit并提供基于best practice的代码Review。
+  当用户需要review GitLab MR/Commit、进行代码审查、检查代码质量时使用此skill。
   适用于需要自动化代码review流程、确保代码质量、维护代码一致性的场景。
   支持JavaScript/TypeScript、Java、Python代码的review。
-  触发场景包括："review这个MR", "检查GitLab MR代码质量", "对这个PR进行代码审查",
-  "帮我看看这个merge request", "自动review GitLab MR", "GitLab MR代码审查"等。
+  触发场景包括："review这个MR", "review这个commit", "检查GitLab MR代码质量", "对这个PR进行代码审查",
+  "帮我看看这个merge request", "自动review GitLab MR", "GitLab MR代码审查", "review commit"等。
 ---
 
 # GitLab MR Review Skill
 
 ## Overview
 
-此skill用于自动化GitLab Merge Request的代码审查流程。它会：
+此skill用于自动化GitLab Merge Request和Commit的代码审查流程。它会：
 
-1. 获取MR的变更内容（diff）、现有comments和元数据
+1. 获取MR或Commit的变更内容（diff）、现有comments和元数据
 2. 使用LLM直接分析diff，基于checklist和best practice发现代码问题
 3. 过滤已有comments避免重复
-4. 在MR上留下inline comments（针对具体代码行）
+4. 在MR或Commit上留下inline comments（针对具体代码行）
 5. 发布带整体质量评级的review总结
 
 ## Prerequisites
 
 - GitLab Personal Access Token（具有`api`权限）
 - 环境变量 `GITLAB_TOKEN` 或技能执行时提供的token
-- GitLab项目URL和MR IID（MR编号）
+- GitLab项目URL和MR IID（MR编号）或 Commit SHA
 
 ## Supported Languages
 
@@ -51,13 +51,21 @@ Review checklist采用分层配置：
 
 许多 GitLab 实例位于内网或需要特殊认证，直接网络请求会失败（如 `Unable to verify if domain is safe to fetch`）。**正确的做法是：立即解析 URL 参数，然后使用本地的 `fetch_mr.py` 脚本配合 `GITLAB_TOKEN` 调用 GitLab API。**
 
-从用户获取或从提供的 MR URL 中解析必需信息：
+从用户获取或从提供的 MR/Commit URL 中解析必需信息：
 
+**MR Review 必需参数**：
 ```
-必需参数：
 - gitlab_url: GitLab实例URL (e.g., https://gitlab.com)
 - project_path: 项目路径 (e.g., "group/project-name")
 - mr_iid: MR编号 (e.g., 42)
+- token: GitLab Personal Access Token（可选，优先使用GITLAB_TOKEN环境变量）
+```
+
+**Commit Review 必需参数**：
+```
+- gitlab_url: GitLab实例URL
+- project_path: 项目路径
+- commit_sha: Commit SHA (e.g., "a1b2c3d4...")
 - token: GitLab Personal Access Token（可选，优先使用GITLAB_TOKEN环境变量）
 ```
 
@@ -269,6 +277,42 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 
 `post_comments.py` 会自动跳过无法发布的行（如行号错误），并继续发布其余评论和 Summary。
 
+### Commit Review Workflow
+
+Commit Review 与 MR Review 流程基本一致，区别在于使用 `--commit-sha` 代替 `--mr-iid`，且输出目录建议以 commit SHA 命名：
+
+**Step 1: Fetch Commit Data**
+
+```bash
+python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token "$GITLAB_TOKEN" \
+  --output-dir .mr-review/commit_data_a1b2c3d4
+```
+
+这会生成与 MR 模式兼容的输出文件（`changes.json`、`changes.diff`、`existing_comments.json`、`metadata.json` 等），以及额外的 `commit_info.json` 和 `commit_data.json`。
+
+> 注意：Commit diff API 通常不会返回准确的 `additions`/`deletions` 统计，脚本会自动从 diff 文本中重新计算。
+
+**Step 2-5**: 与 MR Review 相同（读取 checklist、LLM 分析、生成 JSON 评论、验证行号）。生成评论 JSON 时保存到 `.mr-review/commit_a1b2c3d4_comments.json`。
+
+**Step 6: Post Commit Review Comments**
+
+```bash
+python3 skills/gitlab-mr-review/scripts/post_comments.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token "$GITLAB_TOKEN" \
+  --comments-file .mr-review/commit_a1b2c3d4_comments_validated.json \
+  --metadata-file .mr-review/commit_data_a1b2c3d4/metadata.json \
+  --dry-run
+```
+
+确认后正式发布（去掉 `--dry-run`）。评论会以 **Discussions** 的形式出现在该 Commit 的页面上。
+
 ## Comment Format
 
 ### Inline Comment Structure
@@ -323,6 +367,20 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 10. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
 11. 确认后正式发布inline comments和summary comment
 12. 向用户报告review结果摘要
+
+### Commit Review 示例
+
+**用户请求**：
+```
+帮我review一下这个commit：https://gitlab.com/mygroup/myproject/-/commit/a1b2c3d4
+```
+
+**执行流程**：
+1. 解析Commit URL，提取项目路径和Commit SHA (`a1b2c3d4`)
+2. 检查环境变量 `GITLAB_TOKEN`
+3. **直接运行 CLI 命令** `fetch_mr.py --commit-sha a1b2c3d4` 获取数据到 `.mr-review/commit_data_a1b2c3d4`
+4. 后续步骤（读取 checklist、LLM 分析、验证行号、dry-run、发布）与 MR Review 完全一致
+5. 向用户报告review结果摘要
 
 ### 输出示例
 
@@ -399,6 +457,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 |---------|---------|
 | `fetch_mr.py` 失败（401/403/404） | 向用户解释原因，请求确认 token/URL/权限，然后重试 |
 | `fetch_mr.py` 失败（网络超时） | 等待 3-5 秒后重试一次；若仍失败，向用户说明网络问题 |
+| `fetch_mr.py` 失败（Commit 不存在） | 确认 Commit SHA 是否完整正确（GitLab API 通常只需要前 8 位，但建议用完整 SHA） |
 | `show_diff_lines.py` 失败 | 该脚本为辅助工具，失败不影响主流程。可直接读取 `changes.json` 手动分析 |
 | `validate_comments.py` 失败（存在无效行号） | **必须**修正 JSON 中的行号（或换用 `--auto-fix`），然后重新验证，直到通过 |
 | `post_comments.py` 失败（summary 或部分 inline 失败） | 分析日志：如果是单条 400 被跳过，其余成功，则任务已完成；如果是批量 401/403，向用户说明 |
@@ -425,8 +484,9 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 
 ### fetch_mr.py
 
-获取MR数据。建议统一输出到 `.mr-review/` 子目录。
+获取MR或Commit数据。建议统一输出到 `.mr-review/` 子目录。
 
+**MR 模式**：
 ```bash
 python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --gitlab-url https://gitlab.com \
@@ -434,6 +494,16 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
   --output-dir .mr-review/mr-data
+```
+
+**Commit 模式**：
+```bash
+python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token $GITLAB_TOKEN \
+  --output-dir .mr-review/commit-data
 ```
 
 ### show_diff_lines.py
@@ -462,8 +532,9 @@ python3 skills/gitlab-mr-review/scripts/validate_comments.py \
 
 ### post_comments.py
 
-发布 comments 和 Summary 到 MR。支持 `--dry-run` 预览。
+发布 comments 和 Summary 到 MR 或 Commit。支持 `--dry-run` 预览。
 
+**MR 模式**：
 ```bash
 python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --gitlab-url https://gitlab.com \
@@ -472,6 +543,17 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --token $GITLAB_TOKEN \
   --comments-file .mr-review/comments_validated.json \
   --metadata-file .mr-review/mr-data/metadata.json
+```
+
+**Commit 模式**：
+```bash
+python3 skills/gitlab-mr-review/scripts/post_comments.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token $GITLAB_TOKEN \
+  --comments-file .mr-review/comments_validated.json \
+  --metadata-file .mr-review/commit-data/metadata.json
 ```
 
 ## GitLab API Reference
@@ -511,6 +593,27 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 - **Create MR note**: `POST /projects/:id/merge_requests/:merge_request_iid/notes`
   - 文档: https://docs.gitlab.com/api/notes/#create-a-merge-request-note
   - 发布general comments（非inline的summary评论）
+
+### Commits API
+
+- **Get a single commit**: `GET /projects/:id/repository/commits/:sha`
+  - 文档: https://docs.gitlab.com/api/commits/#get-a-single-commit
+  - 获取Commit基本信息，包括 `parent_ids`（用于构造 `base_sha`）
+
+- **Get commit diff**: `GET /projects/:id/repository/commits/:sha/diff`
+  - 文档: https://docs.gitlab.com/api/commits/#get-the-diff-of-a-commit
+  - 获取Commit的diff内容（注意：此API返回的 `additions`/`deletions` 统计经常为0，脚本会自行从diff文本重算）
+
+### Commit Discussions API
+
+- **List commit discussions**: `GET /projects/:id/repository/commits/:sha/discussions`
+  - 文档: https://docs.gitlab.com/api/discussions/#list-all-commit-discussion-items
+  - 获取Commit现有的comments，用于避免重复
+
+- **Create commit discussion**: `POST /projects/:id/repository/commits/:sha/discussions`
+  - 文档: https://docs.gitlab.com/api/discussions/#create-a-commit-thread
+  - 在Commit页面创建inline comments或general discussion（不带 `position` 时）
+  - Position参数与MR discussion一致，其中 `head_sha` 为该commit本身，`base_sha`/`start_sha` 为其第一个parent commit
 
 ### Authentication
 
