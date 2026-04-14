@@ -149,15 +149,25 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 使用Read工具读取checklist内容。
 
-### Step 5: Round 1 — Structured Review
+### Step 5: Round 1 — Business Rationality Review（默认执行）
 
-**输入**：`changes.diff`（或 `changes.json`）、`existing_comments.json`、checklist 内容
+**输入**：`changes.diff`（或 `changes.json`）、`existing_comments.json`
 
-按现有的结构化方式进行第一轮分析。要求与之前一致：先理解业务意图，再用 checklist 作为灵感参考，重点关注架构、设计、逻辑、安全和数据一致性。**禁止 checklist-driven scanning**。
+对变更进行第一轮分析，**只使用以下提示词**：
 
-**行号规则（两轮通用）**：
+```
+从业务功能实现合理性的角度进行分析
+```
+
+**本轮要求**：
+- **抛开 checklist**，purely 从业务常识和工程直觉出发。
+- 重点发现：**业务功能实现的合理性**。
+- 先看文件名、类名、方法名推断业务场景，再判断代码中的常量、枚举、默认值、返回逻辑是否与该场景常识匹配。
+- 本轮以 comment 列表形式暂存结果，不要输出最终 JSON。
+
+**行号规则（通用）**：
 - `line` 必须是 diff 中 `+` 行对应的新文件实际行号。
-- **严禁手动推算、心算或数 diff hunk 来猜测行号**。diff 格式极易误导，手动计算会浪费大量时间且极易出错（参考 `validate_comments.py` 常见 400 失败）。
+- **严禁手动推算、心算或数 diff hunk 来猜测行号**。diff 格式极易误导，手动计算会浪费大量时间且极易出错。
 - **对任何不确定行号的 comment，必须在生成 JSON 前运行 `show_diff_lines.py` 获取精确行号**：
   ```bash
   python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
@@ -167,31 +177,25 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
   ```
 - 直接复制脚本输出中的 `+ 行号`，不要自行加减。
 
-将本轮发现的 comments 暂存（记录文件路径和大致代码内容即可），不要输出最终 JSON。
-
 ---
 
-### Step 6: Round 2 — Business Rationality Review
+### Step 6: Round 2 — Structured Review（仅在用户要求全面分析时执行）
 
-**输入**：同样的 diff + 第一轮已发现的 comments
+**触发条件**：用户明确说了"全面分析"、"详细 review"、"深度检查"、"按 checklist review"等类似要求时，才执行本步骤。否则跳过。
 
-对同一批变更进行第二轮分析，**只使用以下提示词**：
+**输入**：同样的 diff + Round 1 已发现的 comments + checklist 内容
 
-```
-再从业务功能实现的合理性分析一下。
-```
+在 Round 1 的基础上，用 checklist 作为灵感参考，补充检查架构、设计、逻辑、安全和数据一致性等方面。**禁止 checklist-driven scanning**。
 
 **本轮要求**：
-- 抛开 checklist， purely 从业务常识和工程直觉出发。
-- 重点发现：**业务功能实现的合理性**。
-- 如果第一轮已经提到了某个问题，本轮不要再重复。
-- 本轮同样以 comment 列表形式输出，格式与 Round 1 一致。
+- 如果 Round 1 已经提到了某个问题，本轮不要再重复。
+- 同样以 comment 列表形式暂存，不要输出最终 JSON。
 
 ---
 
 ### Step 6.5: Resolve Line Numbers (Before JSON)
 
-在合并两轮结果并生成 JSON **之前**，**必须确保每个 comment 的行号都是准确的**。
+在生成 JSON **之前**，**必须确保每个 comment 的行号都是准确的**。
 
 如果你有任何一条 comment 的行号不是 100% 确定：
 
@@ -214,13 +218,17 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 ---
 
-### Step 7: Merge Results & Generate Review Comments JSON
+### Step 7: Generate Review Comments JSON
 
-**合并规则**：
-1. 将 Round 1 和 Round 2 的 comments 合并到同一个列表。
+如果**只执行了 Round 1**（默认情况）：直接将 Round 1 的 comments 生成 JSON。
+
+如果**执行了 Round 1 + Round 2**（用户要求全面分析时）：
+1. 将两轮的 comments 合并到同一个列表。
 2. **去重**：如果同一文件、同一行或相近行（±3 行）有相似描述的评论，只保留一条（优先保留描述更具体、severity 更高或带有 suggestion 的一条）。
-3. **控制总量**：如果合并后 comments 超过 8 条，优先保留 `critical` 和 `warning`，将低价值的 `info` 合并或删除。
-4. 确保每条 comment 都包含 `base_sha`、`head_sha`、`start_sha`（从 `metadata.json` 中获取）。
+
+**控制总量**：无论是一轮还是两轮，最终 comments 都建议控制在 **6-8 条**以内。优先保留 `critical` 和 `warning`，将低价值的 `info` 合并或删除。
+
+确保每条 comment 都包含 `base_sha`、`head_sha`、`start_sha`（从 `metadata.json` 中获取）。
 
 将合并后的结果保存为 JSON 文件：
 
@@ -382,7 +390,7 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
 
 > 注意：Commit diff API 通常不会返回准确的 `additions`/`deletions` 统计，脚本会自动从 diff 文本中重新计算。
 
-**Step 2-7**: 与 MR Review 相同（读取 checklist、Round 1 结构化分析、Round 2 业务合理性分析、合并生成 JSON 评论、验证行号）。生成评论 JSON 时保存到 `.mr-review/commit_a1b2c3d4_comments.json`。
+**Step 2-7**: 与 MR Review 相同（读取 checklist、Round 1 业务合理性分析、可选 Round 2 结构化分析、生成 JSON 评论、验证行号）。生成评论 JSON 时保存到 `.mr-review/commit_a1b2c3d4_comments.json`。
 
 **Step 8: Post Commit Review Comments**
 
@@ -458,10 +466,10 @@ rm -rf .mr-review/
 5. **直接运行 CLI 命令** `fetch_mr.py` 获取MR数据到 `.mr-review/mr_data_42`
 6. 读取 `metadata.json` 和 `changes.diff`
 7. 检测编程语言，读取对应checklist
-8. **Round 1**：使用完整 checklist 进行结构化分析
-9. **Round 2**：只用提示词 *"再从业务功能实现的合理性分析一下。"* 进行第二轮分析
+8. **Round 1（默认）**：只用提示词 *"从业务功能实现的合理性分析。"* 进行业务合理性分析
+9. **Round 2（仅在用户要求全面分析时执行）**：使用完整 checklist 进行结构化分析
 10. **对不确定的行号**，运行 `show_diff_lines.py` 获取精确行号
-11. 合并两轮结果，生成 `.mr-review/mr_42_comments.json`
+11. 合并结果（或直接使用 Round 1 结果），生成 `.mr-review/mr_42_comments.json`
 12. **直接运行 CLI 命令** `validate_comments.py` 验证行号
 13. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
 14. 确认后正式发布inline comments和summary comment
@@ -479,7 +487,7 @@ rm -rf .mr-review/
 1. 解析Commit URL，提取项目路径和Commit SHA (`a1b2c3d4`)
 2. 检查环境变量 `GITLAB_TOKEN`
 3. **直接运行 CLI 命令** `fetch_mr.py --commit-sha a1b2c3d4` 获取数据到 `.mr-review/commit_data_a1b2c3d4`
-4. 后续步骤（读取 checklist、Round 1 结构化分析、Round 2 业务合理性分析、合并生成 JSON、验证行号、dry-run、发布）与 MR Review 完全一致
+4. 后续步骤（读取 checklist、Round 1 业务合理性分析、可选 Round 2 结构化分析、生成 JSON、验证行号、dry-run、发布）与 MR Review 完全一致
 5. 向用户报告review结果摘要
 6. **清理 `.mr-review/` 临时文件**
 
