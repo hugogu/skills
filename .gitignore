@@ -19,3 +19,4 @@
 .cursor/settings.local.json
 .windsurf/settings.local.json
 .codex/config.toml
+.mr-review/

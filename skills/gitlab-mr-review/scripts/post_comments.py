@@ -31,7 +31,7 @@ def make_request(
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
         print(f"HTTP Error {e.code}: {error_body}", file=sys.stderr)
-        raise
+        raise RuntimeError(f"HTTP {e.code}: {error_body}") from e
     except Exception as e:
         print(f"Request failed: {e}", file=sys.stderr)
         raise
@@ -64,6 +64,26 @@ def post_inline_comment(
     try:
         make_request(url, token, method="POST", data=json.dumps(data).encode("utf-8"))
         return True
+    except RuntimeError as e:
+        err_msg = str(e)
+        if "HTTP 400:" in err_msg:
+            error_body = err_msg.split("HTTP 400:", 1)[1].strip()
+            if "line_code" in error_body:
+                print(
+                    f"  ✗ Skipped (line {comment.get('line')} is not a valid diff line - ensure it points to an added/modified line)",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"  ✗ Skipped (HTTP 400: {error_body or 'invalid request'})",
+                    file=sys.stderr,
+                )
+        else:
+            print(f"Failed to post comment: {err_msg}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Failed to post comment: {e}", file=sys.stderr)
+        return False
     except Exception as e:
         print(f"Failed to post comment: {e}", file=sys.stderr)
         return False
@@ -123,6 +143,25 @@ def format_comment_body(comment: Dict) -> str:
     return "\n".join(lines)
 
 
+def calculate_quality_grade(severity_counts: Dict[str, int]) -> str:
+    """Calculate overall quality grade based on issue counts."""
+    score = (
+        100
+        - severity_counts.get("critical", 0) * 20
+        - severity_counts.get("warning", 0) * 8
+        - severity_counts.get("info", 0) * 2
+    )
+    if score >= 90:
+        return "🟢 A (Excellent)"
+    if score >= 80:
+        return "🟢 B (Good)"
+    if score >= 60:
+        return "🟡 C (Fair)"
+    if score >= 40:
+        return "🟠 D (Poor)"
+    return "🔴 F (Fail)"
+
+
 def generate_summary_comment(review_data: Dict) -> str:
     """Generate summary comment markdown."""
     comments = review_data.get("comments", [])
@@ -139,6 +178,9 @@ def generate_summary_comment(review_data: Dict) -> str:
         severity_counts[severity] = severity_counts.get(severity, 0) + 1
         type_counts[issue_type] = type_counts.get(issue_type, 0) + 1
 
+    grade = calculate_quality_grade(severity_counts)
+    total_issues = len(comments)
+
     # Build summary
     lines = [
         "## 📝 MR Review Summary",
@@ -148,6 +190,8 @@ def generate_summary_comment(review_data: Dict) -> str:
         f"**Additions**: {metadata.get('total_additions', 0)} | "
         f"**Deletions**: {metadata.get('total_deletions', 0)}",
         "",
+        f"### 整体质量评级: {grade}",
+        "",
         "### 发现的问题",
         "",
         "| Severity | Count |",
@@ -155,8 +199,18 @@ def generate_summary_comment(review_data: Dict) -> str:
         f"| 🔴 Critical | {severity_counts['critical']} |",
         f"| 🟡 Warning | {severity_counts['warning']} |",
         f"| 🔵 Info | {severity_counts['info']} |",
+        f"| **Total** | **{total_issues}** |",
         "",
     ]
+
+    # Highlight merge conflicts if present
+    if metadata.get("has_conflicts"):
+        lines.extend(
+            [
+                "⚠️ **注意**: 该 MR 当前存在合并冲突，请先解决冲突后再合并。",
+                "",
+            ]
+        )
 
     # Add breakdown by type if there are issues
     if type_counts:
@@ -178,9 +232,24 @@ def generate_summary_comment(review_data: Dict) -> str:
                     msg += "..."
 
                 emoji = "🔴" if comment.get("severity") == "critical" else "🟡"
-                lines.append(f"{emoji} `{file_path}:{line}` - {msg}")
+                lines.append(f"- {emoji} `{file_path}:{line}` - {msg}")
 
         lines.append("")
+
+    # Add grade-specific suggestion
+    lines.extend(["### 评审意见", ""])
+    if severity_counts["critical"] > 0:
+        lines.append(
+            f"当前代码存在 **{severity_counts['critical']}** 个 critical 问题，强烈建议修复后再合并。"
+        )
+    elif severity_counts["warning"] > 3:
+        lines.append("代码整体可用，但 warning 问题较多，建议抽时间逐步优化。")
+    elif total_issues == 0:
+        lines.append("本次变更未发现问题，代码质量良好。")
+    else:
+        lines.append("代码质量整体良好，部分建议供参考。")
+
+    lines.append("")
 
     # Add suggestions
     lines.extend(["### 建议行动", ""])
