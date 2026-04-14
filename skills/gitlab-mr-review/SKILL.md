@@ -155,7 +155,19 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 按现有的结构化方式进行第一轮分析。要求与之前一致：先理解业务意图，再用 checklist 作为灵感参考，重点关注架构、设计、逻辑、安全和数据一致性。**禁止 checklist-driven scanning**。
 
-将本轮发现的 comments 暂存，不要输出最终 JSON。
+**行号规则（两轮通用）**：
+- `line` 必须是 diff 中 `+` 行对应的新文件实际行号。
+- **严禁手动推算、心算或数 diff hunk 来猜测行号**。diff 格式极易误导，手动计算会浪费大量时间且极易出错（参考 `validate_comments.py` 常见 400 失败）。
+- **对任何不确定行号的 comment，必须在生成 JSON 前运行 `show_diff_lines.py` 获取精确行号**：
+  ```bash
+  python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
+    --changes-file .mr-review/mr_data_42/changes.json \
+    --file "FooService.java" \
+    --context 0
+  ```
+- 直接复制脚本输出中的 `+ 行号`，不要自行加减。
+
+将本轮发现的 comments 暂存（记录文件路径和大致代码内容即可），不要输出最终 JSON。
 
 ---
 
@@ -174,6 +186,31 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 - 重点发现：**业务功能实现的合理性**。
 - 如果第一轮已经提到了某个问题，本轮不要再重复。
 - 本轮同样以 comment 列表形式输出，格式与 Round 1 一致。
+
+---
+
+### Step 6.5: Resolve Line Numbers (Before JSON)
+
+在合并两轮结果并生成 JSON **之前**，**必须确保每个 comment 的行号都是准确的**。
+
+如果你有任何一条 comment 的行号不是 100% 确定：
+
+1. **运行 `show_diff_lines.py` 查看精确行号**：
+   ```bash
+   python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
+     --changes-file .mr-review/mr_data_42/changes.json \
+     --file "TradeFileUploadServiceImpl.java" \
+     --context 0
+   ```
+2. 在输出中找到你要评论的那一行代码，**直接复制**前面的 `+ 行号`。
+3. 更新你的 comment 列表中的 `line` 字段。
+
+**禁止的行为**：
+- ❌ 在脑中根据 diff hunk 的 `@@` 信息推算行号
+- ❌ 手动数 diff 文件的物理行数然后加减
+- ❌ 凭记忆或猜测填写行号
+
+这是导致 review 发布 400 失败和浪费时间的主要原因，请务必使用脚本获取。
 
 ---
 
@@ -423,12 +460,13 @@ rm -rf .mr-review/
 7. 检测编程语言，读取对应checklist
 8. **Round 1**：使用完整 checklist 进行结构化分析
 9. **Round 2**：只用提示词 *"再从业务功能实现的合理性分析一下。"* 进行第二轮分析
-10. 合并两轮结果，生成 `.mr-review/mr_42_comments.json`
-11. **直接运行 CLI 命令** `validate_comments.py` 验证行号
-12. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
-13. 确认后正式发布inline comments和summary comment
-14. 向用户报告review结果摘要
-15. **清理 `.mr-review/` 临时文件**
+10. **对不确定的行号**，运行 `show_diff_lines.py` 获取精确行号
+11. 合并两轮结果，生成 `.mr-review/mr_42_comments.json`
+12. **直接运行 CLI 命令** `validate_comments.py` 验证行号
+13. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
+14. 确认后正式发布inline comments和summary comment
+15. 向用户报告review结果摘要
+16. **清理 `.mr-review/` 临时文件**
 
 ### Commit Review 示例
 
