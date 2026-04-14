@@ -149,100 +149,91 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 使用Read工具读取checklist内容。
 
-### Step 5: LLM Code Analysis
+### Step 5: Round 1 — Structured Review
 
-将以下信息提供给LLM进行分析：
-- `changes.diff` 或 `changes.json` 中的代码变更
-- `existing_comments.json` 中的现有评论
-- checklist 内容
+**输入**：`changes.diff`（或 `changes.json`）、`existing_comments.json`、checklist 内容
 
-**Review Mindset（核心要求）**
+按现有的结构化方式进行第一轮分析。要求与之前一致：先理解业务意图，再用 checklist 作为灵感参考，重点关注架构、设计、逻辑、安全和数据一致性。**禁止 checklist-driven scanning**。
 
-你不是一台静态扫描仪，而是一位正在帮 teammate review 代码的资深工程师。**checklist 只是参考和灵感来源，不是必须逐条勾选的表格。** 请遵循以下思维方式：
+将本轮发现的 comments 暂存，不要输出最终 JSON。
 
-1. **先理解业务意图**：用 1-2 句话总结这段 diff 在做什么业务层面的变更。**从文件名、类名、方法名推断业务场景**。
-2. **再用常识判断**：这段代码在业务上是否说得通？逻辑上在该场景上下文下是否合理？
-3. **最后参考 checklist**：从上面的 checklist 中汲取可能被遗漏的角度（架构、并发、安全、数据一致性），但 **不要为了找问题而找问题**。如果代码在业务和设计上都是合理的，可以只给出少量 info 甚至不评论。
-4. **基于全部变更的整体分析**：不要只盯着某一行代码，忽略了它在整个文件甚至整个MR中的上下文关系。**代码的合理性往往需要结合上下文来判断**。
+---
 
-**常见失败模式**：
-- ❌ **Checklist-driven scanning**：逐条对照 checklist 找茬，结果忽略了代码本身的业务语义。
-- ✅ **Engineer common sense**：先问“这段代码在业务上是否合理？”，再问“设计上有没有更好的做法？”
+### Step 6: Round 2 — Business Rationality Review
 
-**分析要求**：
+**输入**：同样的 diff + 第一轮已发现的 comments
 
-1. **综合分析新增/修改/删除的代码**：通过变化尝试理解变更动机和上下文。
-2. **行号必须准确**：`line` 必须是该代码在新文件中的实际行号（diff hunk中的新文件行号，即 `+` 行对应的行号），**不是** diff文件的物理行号。如果某行是新增文件中的第18行，就写18。
-3. **避免重复评论**：如果 `existing_comments.json` 中已有相同文件、相近行号、相似描述的评论，不要再提。
-4. **severity 分级**：
-   - `critical`: 阻塞性问题（安全漏洞、明显bug、BLOCKER级问题）
-   - `warning`: 需要关注（设计缺陷、潜在逻辑问题、不应提交的本地配置、违背业务常识的硬编码等）
-   - `info`: 建议性意见（可以忽略）
-5. **comment 格式**：每个comment必须包含以下字段：
-   - `file_path`: 文件路径（如 `src/main/java/com/example/Foo.java`）
-   - `line`: 新文件中的行号（整数）
-   - `severity`: `critical` | `warning` | `info`
-   - `type`: 问题类型，如 `security`, `logic`, `architecture`, `design`, `data_integrity`, `maintainability`, `business_semantics`
-   - `message`: 问题描述（中文或英文，视项目语言而定）
-   - `suggestion`: 改进建议（可选，使用GitLab suggestion格式时提供具体代码）
-   - `reference`: 参考链接（可选）
-   - `base_sha`, `head_sha`, `start_sha`: 从metadata中获取
+对同一批变更进行第二轮分析，**只使用以下提示词**：
 
-**不评论静态工具已覆盖的问题**：通过 SonarQube / ESLint / Checkstyle / Pylint 等工具极易发现，AI Review **不单独提出**，除非它们已经导致了实际的业务/设计缺陷。
-
-**重点审查方向（按优先级排序）**：
-
-1. **业务语义合理性（business_semantics）—— 最高优先级**
-   - **先看文件名、类名、方法名，推断这段代码的业务场景**。
-   - 然后判断：**代码逻辑是否与该业务场景常识匹配**。如果无法判断是否合理，宁可不评论。
-   - **禁止泛泛而谈**：不要因为"这是硬编码"就评论。必须能说明"在这个业务场景下，这个值为什么是错的或危险的"。
-   - 文案、提示语是否准确，是否可能误导用户
-   - 业务规则（折扣、费率、有效期、保存时长）是否应配置化
-
-2. **架构与设计（architecture / design）**
-   - 类/函数职责是否单一，是否存在 God Class / God Method
-   - 抽象层次是否合理，接口是否稳定，实现细节是否泄漏到上层
-   - 是否符合 SOLID 原则（开闭、依赖倒置、里氏替换等）
-   - 是否可以用更简洁的设计模式消除重复 if/else 或重复流程
-   - 分层是否清晰，领域层是否依赖了基础设施层
-
-3. **逻辑正确性（logic）**
-   - **分支完备性**：if/else/switch 是否覆盖所有业务场景，是否存在隐式遗漏
-   - **循环与终止**：是否有明确退出条件，是否会死循环或提前终止
-   - **状态一致性**：异常发生后对象/事务状态是否合理，是否存在半完成修改
-   - **并发与时序**：多线程/异步场景下是否存在竞态条件、死锁、时序错误
-   - **数值与边界**：除零、溢出、越界、浮点精度、时区处理是否正确
-   - **幂等性与副作用**：重复调用是否安全，深/浅拷贝是否导致意外副作用
-   - **条件判断陷阱**：短路求值误用、== 与 equals 混用、类型隐式转换
-
-4. **安全（security）**
-   - 需要结合业务上下文判断的越权、数据泄漏、动态 SQL/命令注入、路径遍历等问题
-
-5. **数据一致性（data_integrity）**
-   - 事务边界、缓存一致性、并发写控制、数据校验链是否完整
-
-6. **可维护性与扩展性（maintainability）**
-   - 硬编码业务规则、重复逻辑、接口稳定性、新增功能的改动范围
-
-**查找有效行号的快捷方式**：
-如果不知道某行精确的 `+` 行号，可以直接运行：
-
-```bash
-python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
-  --changes-file .mr-review/mr_data_42/changes.json \
-  --file "FooService.java" \
-  --context 2
+```
+再从业务功能实现的合理性分析一下。
 ```
 
-这会输出该文件所有可评论的 `+` 行及其前后 2 行上下文，直接复制行号即可。
+**本轮要求**：
+- 抛开 checklist， purely 从业务常识和工程直觉出发。
+- 重点发现：**业务功能实现的合理性**。
+- 如果第一轮已经提到了某个问题，本轮不要再重复。
+- 本轮同样以 comment 列表形式输出，格式与 Round 1 一致。
 
-**特别注意的常见陷阱**：
-- `application.yml`、`.properties`、环境配置文件中出现的端口变更、超时变更、本地路径、调试开关等，很可能是本地开发配置误提交，应标记为 `warning`。
-- 缺少泛型参数、使用 `System.out.println` 等简单规范问题，如果静态工具已覆盖则 **不重复评论**。
-- 捕获通用 `Exception` 在业务代码中常见，但如果不是必要的回退逻辑，且可能导致异常信息丢失或状态不一致，可标记为 `warning`。
-- 如果 SonarQube / ESLint / Checkstyle 等工具已在现有comments中指出了风格或规范问题，不要再重复评论。
+---
 
-### Step 6: Generate Review Comments JSON
+### Step 7: Merge Results & Generate Review Comments JSON
+
+**合并规则**：
+1. 将 Round 1 和 Round 2 的 comments 合并到同一个列表。
+2. **去重**：如果同一文件、同一行或相近行（±3 行）有相似描述的评论，只保留一条（优先保留描述更具体、severity 更高或带有 suggestion 的一条）。
+3. **控制总量**：如果合并后 comments 超过 8 条，优先保留 `critical` 和 `warning`，将低价值的 `info` 合并或删除。
+4. 确保每条 comment 都包含 `base_sha`、`head_sha`、`start_sha`（从 `metadata.json` 中获取）。
+
+将合并后的结果保存为 JSON 文件：
+
+`.mr-review/mr_42_comments.json`（MR 模式）或 `.mr-review/commit_a1b2c3d4_comments.json`（Commit 模式）
+
+```json
+{
+  "metadata": {
+    "gitlab_url": "...",
+    "project_path": "...",
+    "mr_iid": 42,
+    "mr_title": "...",
+    "detected_language": "java",
+    "total_files": 5,
+    "total_additions": 120,
+    "total_deletions": 30,
+    "has_conflicts": false,
+    "model": "kimi-for-coding/k2p5",
+    "token_usage": 15234
+  },
+  "comments": [
+    {
+      "file_path": "src/main/java/com/example/FooService.java",
+      "line": 42,
+      "severity": "warning",
+      "type": "business_semantics",
+      "message": "硬编码值与当前业务场景的常识不符，建议根据实际业务规则进行配置化或选择合适的枚举",
+      "suggestion": "将硬编码的业务参数抽为配置项或根据类型动态选择",
+      "base_sha": "...",
+      "head_sha": "...",
+      "start_sha": "..."
+    }
+  ],
+  "stats": {
+    "total_issues": 1,
+    "by_severity": {"critical": 0, "warning": 1, "info": 0},
+    "by_type": {"business_semantics": 1}
+  }
+}
+```
+
+如果 MR 存在合并冲突，请在 `metadata.has_conflicts` 中标记为 `true`（用于在 Summary 中高亮）。
+
+**模型与 Token 信息**：在 `metadata` 中记录本次 review 使用的模型名称和整体 Token 消耗量：
+- `model`: 当前使用的模型名称（如 `kimi-for-coding/k2p5`）
+- `token_usage`: 本次 review 整体消耗的 Token 总量（整数）
+
+**不要自己写 Python 脚本来保存 JSON**，直接使用 `Write` 工具写入文件即可。
+
+### Step 8: Validate Line Numbers (MUST DO)
 
 将LLM分析结果整理为如下JSON结构，并保存到文件 `.mr-review/mr_42_comments.json`：
 
@@ -354,9 +345,9 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
 
 > 注意：Commit diff API 通常不会返回准确的 `additions`/`deletions` 统计，脚本会自动从 diff 文本中重新计算。
 
-**Step 2-5**: 与 MR Review 相同（读取 checklist、LLM 分析、生成 JSON 评论、验证行号）。生成评论 JSON 时保存到 `.mr-review/commit_a1b2c3d4_comments.json`。
+**Step 2-7**: 与 MR Review 相同（读取 checklist、Round 1 结构化分析、Round 2 业务合理性分析、合并生成 JSON 评论、验证行号）。生成评论 JSON 时保存到 `.mr-review/commit_a1b2c3d4_comments.json`。
 
-**Step 6: Post Commit Review Comments**
+**Step 8: Post Commit Review Comments**
 
 ```bash
 python3 skills/gitlab-mr-review/scripts/post_comments.py \
@@ -430,12 +421,14 @@ rm -rf .mr-review/
 5. **直接运行 CLI 命令** `fetch_mr.py` 获取MR数据到 `.mr-review/mr_data_42`
 6. 读取 `metadata.json` 和 `changes.diff`
 7. 检测编程语言，读取对应checklist
-8. **使用LLM直接分析diff**（重点审查逻辑合理性），生成 `.mr-review/mr_42_comments.json`
-9. **直接运行 CLI 命令** `validate_comments.py` 验证行号
-10. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
-11. 确认后正式发布inline comments和summary comment
-12. 向用户报告review结果摘要
-13. **清理 `.mr-review/` 临时文件**
+8. **Round 1**：使用完整 checklist 进行结构化分析
+9. **Round 2**：只用提示词 *"再从业务功能实现的合理性分析一下。"* 进行第二轮分析
+10. 合并两轮结果，生成 `.mr-review/mr_42_comments.json`
+11. **直接运行 CLI 命令** `validate_comments.py` 验证行号
+12. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
+13. 确认后正式发布inline comments和summary comment
+14. 向用户报告review结果摘要
+15. **清理 `.mr-review/` 临时文件**
 
 ### Commit Review 示例
 
@@ -448,7 +441,7 @@ rm -rf .mr-review/
 1. 解析Commit URL，提取项目路径和Commit SHA (`a1b2c3d4`)
 2. 检查环境变量 `GITLAB_TOKEN`
 3. **直接运行 CLI 命令** `fetch_mr.py --commit-sha a1b2c3d4` 获取数据到 `.mr-review/commit_data_a1b2c3d4`
-4. 后续步骤（读取 checklist、LLM 分析、验证行号、dry-run、发布）与 MR Review 完全一致
+4. 后续步骤（读取 checklist、Round 1 结构化分析、Round 2 业务合理性分析、合并生成 JSON、验证行号、dry-run、发布）与 MR Review 完全一致
 5. 向用户报告review结果摘要
 6. **清理 `.mr-review/` 临时文件**
 
