@@ -161,12 +161,12 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 你不是一台静态扫描仪，而是一位正在帮 teammate review 代码的资深工程师。**checklist 只是参考和灵感来源，不是必须逐条勾选的表格。** 请遵循以下思维方式：
 
-1. **先理解业务意图**：用 1-2 句话总结这段 diff 在做什么业务层面的变更（例如：新增交易文件上传功能，将文件写入 DFS 并记录日志）。
-2. **再用常识判断**：这段代码在业务上是否说得通？有没有明显违背常识的硬编码？例如：交易凭证/合同类文件写死 `SEVEN_DAY`（7天过期）、支付金额用浮点数计算、给普通用户接口配置了管理员权限等。
+1. **先理解业务意图**：用 1-2 句话总结这段 diff 在做什么业务层面的变更。
+2. **再用常识判断**：这段代码在业务上是否说得通？有没有明显违背常识的硬编码？
 3. **最后参考 checklist**：从上面的 checklist 中汲取可能被遗漏的角度（架构、并发、安全、数据一致性），但 **不要为了找问题而找问题**。如果代码在业务和设计上都是合理的，可以只给出少量 info 甚至不评论。
 
 **常见失败模式**：
-- ❌ **Checklist-driven scanning**：逐条对照 checklist 找茬，结果忽略了代码本身的业务语义（如没发现交易材料被硬编码为 7 天过期）。
+- ❌ **Checklist-driven scanning**：逐条对照 checklist 找茬，结果忽略了代码本身的业务语义。
 - ✅ **Engineer common sense**：先问“这段代码在业务上是否合理？”，再问“设计上有没有更好的做法？”
 
 **分析要求**：
@@ -264,12 +264,12 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
   },
   "comments": [
     {
-      "file_path": "src/main/java/com/example/TradeFileUploadServiceImpl.java",
-      "line": 106,
+      "file_path": "src/main/java/com/example/FooService.java",
+      "line": 42,
       "severity": "warning",
       "type": "business_semantics",
-      "message": "交易材料上传场景下硬编码了 SEVEN_DAY（7天过期），这与交易凭证通常需长期保存的业务常识不符",
-      "suggestion": "建议将文件保存时长作为业务配置，或根据材料类型选择对应的 FileGroup 枚举值",
+      "message": "硬编码值与当前业务场景的常识不符，建议根据实际业务规则进行配置化或选择合适的枚举",
+      "suggestion": "将硬编码的业务参数抽为配置项或根据类型动态选择",
       "base_sha": "...",
       "head_sha": "...",
       "start_sha": "..."
@@ -470,8 +470,8 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 
 ### 需要关注的问题
 
-🔴 `src/main/java/com/example/AuthController.java:23` - 用户输入未转义直接拼接到SQL查询
-🟡 `src/main/java/com/example/OrderService.java:67` - 先查后改存在竞态条件，建议使用乐观锁
+🔴 `src/main/java/com/example/AuthController.java:23` - 存在安全风险，用户输入未做充分校验即参与敏感操作
+🟡 `src/main/java/com/example/OrderService.java:67` - 并发场景下状态变更缺乏保护，可能出现数据不一致
 
 ### 评审意见
 
