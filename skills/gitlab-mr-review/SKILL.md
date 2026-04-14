@@ -33,6 +33,26 @@ description: |
 - Java
 - Python
 
+## Review Philosophy
+
+本 skill 的 AI Review 定位于**补充**而非**重复**现有静态代码分析工具（如 SonarQube、ESLint、Checkstyle、Pylint）。
+
+### 不评论的内容（静态工具已覆盖）
+
+- 命名规范（camelCase、PascalCase、snake_case 等）
+- 代码格式（缩进、空格、分号、引号、行长度、括号位置）
+- 简单 import 问题（未使用 import、通配符导入、排序）
+- 方法/类长度（除非已经严重到影响设计合理性）
+- 基础语法错误、拼写错误
+
+### 重点评论的内容（AI 更擅长）
+
+- **架构与设计**：职责划分、抽象层次、SOLID 原则、分层合理性、设计模式选择
+- **逻辑正确性**：分支遗漏、边界条件、并发竞态、幂等性、状态一致性、异常恢复
+- **业务安全**：越权、数据泄漏、动态 SQL/命令注入、路径遍历等需要上下文判断的问题
+- **数据一致性**：事务边界、缓存一致性、并发写控制
+- **可维护性与扩展性**：硬编码业务规则、重复逻辑、接口稳定性、新增功能的改动范围
+
 ## Checklist Configuration
 
 Review checklist采用分层配置：
@@ -144,27 +164,49 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 3. **避免重复评论**：如果 `existing_comments.json` 中已有相同文件、相近行号、相似描述的评论，不要再提。
 4. **severity 分级**：
    - `critical`: 阻塞性问题（安全漏洞、明显bug、BLOCKER级问题）
-   - `warning`: 需要关注（风格问题、潜在问题、不应提交的本地配置等）
+   - `warning`: 需要关注（设计缺陷、潜在逻辑问题、不应提交的本地配置等）
    - `info`: 建议性意见（可以忽略）
 5. **comment 格式**：每个comment必须包含以下字段：
    - `file_path`: 文件路径（如 `src/main/java/com/example/Foo.java`）
    - `line`: 新文件中的行号（整数）
    - `severity`: `critical` | `warning` | `info`
-   - `type`: 问题类型，如 `security`, `logic`, `code_consistency`, `style`, `performance`
+   - `type`: 问题类型，如 `security`, `logic`, `architecture`, `design`, `data_integrity`, `maintainability`
    - `message`: 问题描述（中文或英文，视项目语言而定）
    - `suggestion`: 改进建议（可选，使用GitLab suggestion格式时提供具体代码）
    - `reference`: 参考链接（可选）
    - `base_sha`, `head_sha`, `start_sha`: 从metadata中获取
 
-**逻辑合理性分析（重点）**：
-除编码规范外，必须重点审查以下逻辑问题：
-- **分支完备性**：if/else/switch 是否覆盖所有场景，是否存在隐式遗漏
-- **循环与终止**：循环是否有明确退出条件，是否会死循环或提前终止
-- **状态一致性**：异常发生后对象/状态是否处于合理状态，是否留下半完成修改
-- **并发与时序**：多线程/异步场景下是否存在竞态条件、死锁、时序错误
-- **数值与边界**：除零、溢出、越界、浮点精度、时区处理是否正确
-- **幂等性与副作用**：重复调用是否安全，深/浅拷贝是否导致意外副作用
-- **条件判断陷阱**：短路求值误用、== 与 equals 混用、类型隐式转换
+**不评论纯风格问题**：
+- 命名规范（camelCase/PascalCase/snake_case）、缩进、空格、分号、行长度、import 顺序等 **不单独提出**，除非它们严重影响了代码可读性或设计意图。
+- 方法/类长度 **一般不评论**，除非已经严重到反映了职责不单一的设计问题。
+- 如果 SonarQube 等工具已在现有comments中指出了风格或简单规范问题，不要再重复评论。
+
+**重点审查方向（按优先级排序）**：
+
+1. **架构与设计（architecture / design）**
+   - 类/函数职责是否单一，是否存在 God Class / God Method
+   - 抽象层次是否合理，接口是否稳定，实现细节是否泄漏到上层
+   - 是否符合 SOLID 原则（开闭、依赖倒置、里氏替换等）
+   - 是否可以用更简洁的设计模式消除重复 if/else 或重复流程
+   - 分层是否清晰，领域层是否依赖了基础设施层
+
+2. **逻辑正确性（logic）**
+   - **分支完备性**：if/else/switch 是否覆盖所有业务场景，是否存在隐式遗漏
+   - **循环与终止**：是否有明确退出条件，是否会死循环或提前终止
+   - **状态一致性**：异常发生后对象/事务状态是否合理，是否存在半完成修改
+   - **并发与时序**：多线程/异步场景下是否存在竞态条件、死锁、时序错误
+   - **数值与边界**：除零、溢出、越界、浮点精度、时区处理是否正确
+   - **幂等性与副作用**：重复调用是否安全，深/浅拷贝是否导致意外副作用
+   - **条件判断陷阱**：短路求值误用、== 与 equals 混用、类型隐式转换
+
+3. **安全（security）**
+   - 需要结合业务上下文判断的越权、数据泄漏、动态 SQL/命令注入、路径遍历等问题
+
+4. **数据一致性（data_integrity）**
+   - 事务边界、缓存一致性、并发写控制、数据校验链是否完整
+
+5. **可维护性与扩展性（maintainability）**
+   - 硬编码业务规则、重复逻辑、接口稳定性、新增功能的改动范围
 
 **查找有效行号的快捷方式**：
 如果不知道某行精确的 `+` 行号，可以直接运行：
@@ -179,10 +221,10 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
 这会输出该文件所有可评论的 `+` 行及其前后 2 行上下文，直接复制行号即可。
 
 **特别注意的常见陷阱**：
-- `application.yml`、`.properties`、环境配置文件中出现的端口变更、超时变更、本地路径等，很可能是本地开发配置误提交，应标记为 `warning`。
-- 注解冗余（如Java中同时使用 `@Service` 和 `@Component`）、注释残留调试标记、魔法数字、缺少泛型参数、使用 `System.out.println` 等。
-- 捕获通用 `Exception` 在业务代码中常见，但如果不是必要的回退逻辑，可酌情标记为 `info` 或 `warning`。
-- 如果 SonarQube 等工具已在现有comments中指出了某问题，不要再重复评论。
+- `application.yml`、`.properties`、环境配置文件中出现的端口变更、超时变更、本地路径、调试开关等，很可能是本地开发配置误提交，应标记为 `warning`。
+- 缺少泛型参数、使用 `System.out.println` 等简单规范问题，如果静态工具已覆盖则 **不重复评论**。
+- 捕获通用 `Exception` 在业务代码中常见，但如果不是必要的回退逻辑，且可能导致异常信息丢失或状态不一致，可标记为 `warning`。
+- 如果 SonarQube / ESLint / Checkstyle 等工具已在现有comments中指出了风格或规范问题，不要再重复评论。
 
 ### Step 6: Generate Review Comments JSON
 
@@ -406,13 +448,13 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 ### 问题类别
 
 - **Security**: 1
-- **Code Consistency**: 2
-- **Logic**: 1
+- **Logic**: 2
+- **Architecture**: 1
 
 ### 需要关注的问题
 
 🔴 `src/main/java/com/example/AuthController.java:23` - 用户输入未转义直接拼接到SQL查询
-🟡 `src/main/java/com/example/Utils.java:45` - 函数超过50行，建议拆分
+🟡 `src/main/java/com/example/OrderService.java:67` - 先查后改存在竞态条件，建议使用乐观锁
 
 ### 评审意见
 
