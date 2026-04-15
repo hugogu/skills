@@ -144,6 +144,73 @@ def extract_inline_comments(discussions: List[Dict]) -> List[Dict]:
     return comments
 
 
+def recalc_diff_stats(changes: Dict[str, Any]) -> None:
+    """Recalculate additions/deletions from diff text for APIs that don't provide them."""
+    total_additions = 0
+    total_deletions = 0
+    for file_info in changes.get("files", []):
+        diff = file_info.get("diff", "")
+        additions = 0
+        deletions = 0
+        for line in diff.splitlines():
+            if line.startswith("+") and not line.startswith("+++"):
+                additions += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                deletions += 1
+        file_info["additions"] = additions
+        file_info["deletions"] = deletions
+        total_additions += additions
+        total_deletions += deletions
+    changes["additions"] = total_additions
+    changes["deletions"] = total_deletions
+
+
+def fetch_commit_info(
+    gitlab_url: str, project_path: str, commit_sha: str, token: str
+) -> Dict:
+    """Fetch commit basic information."""
+    encoded_path = urllib.parse.quote(project_path, safe="")
+    url = f"{gitlab_url}/api/v4/projects/{encoded_path}/repository/commits/{commit_sha}"
+    return make_request(url, token)
+
+
+def fetch_commit_diff(
+    gitlab_url: str, project_path: str, commit_sha: str, token: str
+) -> List[Dict]:
+    """Fetch commit diff."""
+    encoded_path = urllib.parse.quote(project_path, safe="")
+    url = f"{gitlab_url}/api/v4/projects/{encoded_path}/repository/commits/{commit_sha}/diff"
+    return make_request(url, token)
+
+
+def fetch_commit_discussions(
+    gitlab_url: str, project_path: str, commit_sha: str, token: str
+) -> List[Dict]:
+    """Fetch commit discussions (includes comments)."""
+    encoded_path = urllib.parse.quote(project_path, safe="")
+    url = f"{gitlab_url}/api/v4/projects/{encoded_path}/repository/commits/{commit_sha}/discussions"
+
+    discussions = []
+    page = 1
+    per_page = 100
+
+    while True:
+        paginated_url = f"{url}?page={page}&per_page={per_page}"
+        page_data = make_request(paginated_url, token)
+
+        if not page_data:
+            break
+
+        discussions.extend(page_data)
+
+        if len(page_data) < per_page:
+            break
+
+        page += 1
+
+    return discussions
+
+
 def detect_language(files: List[Dict]) -> str:
     """Detect primary programming language from changed files."""
     extensions = {}
@@ -166,12 +233,14 @@ def detect_language(files: List[Dict]) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch MR data from GitLab")
+    parser = argparse.ArgumentParser(description="Fetch MR or commit data from GitLab")
     parser.add_argument("--gitlab-url", required=True, help="GitLab URL")
     parser.add_argument(
         "--project", required=True, help="Project path (e.g., group/project)"
     )
-    parser.add_argument("--mr-iid", type=int, required=True, help="MR IID")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--mr-iid", type=int, help="MR IID")
+    group.add_argument("--commit-sha", help="Commit SHA")
     parser.add_argument("--token", required=True, help="GitLab Personal Access Token")
     parser.add_argument("--output-dir", required=True, help="Output directory")
 
@@ -182,88 +251,166 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Fetch MR info
-        print(f"Fetching MR #{args.mr_iid} from {args.project}...")
-        mr_info = fetch_mr_info(args.gitlab_url, args.project, args.mr_iid, args.token)
+        if args.mr_iid:
+            # MR mode
+            print(f"Fetching MR #{args.mr_iid} from {args.project}...")
+            mr_info = fetch_mr_info(
+                args.gitlab_url, args.project, args.mr_iid, args.token
+            )
 
-        # Save MR info
-        with open(output_dir / "mr_info.json", "w", encoding="utf-8") as f:
-            json.dump(mr_info, f, indent=2, ensure_ascii=False)
+            with open(output_dir / "mr_info.json", "w", encoding="utf-8") as f:
+                json.dump(mr_info, f, indent=2, ensure_ascii=False)
 
-        # Fetch diff
-        print("Fetching diff...")
-        diffs = fetch_mr_diff(args.gitlab_url, args.project, args.mr_iid, args.token)
-        changes = parse_diff_changes(diffs)
+            print("Fetching diff...")
+            diffs = fetch_mr_diff(
+                args.gitlab_url, args.project, args.mr_iid, args.token
+            )
+            changes = parse_diff_changes(diffs)
 
-        # Save diff
-        with open(output_dir / "changes.json", "w", encoding="utf-8") as f:
-            json.dump(changes, f, indent=2, ensure_ascii=False)
+            with open(output_dir / "changes.json", "w", encoding="utf-8") as f:
+                json.dump(changes, f, indent=2, ensure_ascii=False)
 
-        # Save raw diff text
-        with open(output_dir / "changes.diff", "w", encoding="utf-8") as f:
-            for diff in diffs:
-                f.write(diff.get("diff", ""))
-                f.write("\n")
+            with open(output_dir / "changes.diff", "w", encoding="utf-8") as f:
+                for diff in diffs:
+                    f.write(diff.get("diff", ""))
+                    f.write("\n")
 
-        # Fetch discussions
-        print("Fetching existing discussions...")
-        discussions = fetch_discussions(
-            args.gitlab_url, args.project, args.mr_iid, args.token
-        )
-        comments = extract_inline_comments(discussions)
+            print("Fetching existing discussions...")
+            discussions = fetch_discussions(
+                args.gitlab_url, args.project, args.mr_iid, args.token
+            )
+            comments = extract_inline_comments(discussions)
 
-        # Save comments
-        with open(output_dir / "existing_comments.json", "w", encoding="utf-8") as f:
-            json.dump(comments, f, indent=2, ensure_ascii=False)
+            with open(
+                output_dir / "existing_comments.json", "w", encoding="utf-8"
+            ) as f:
+                json.dump(comments, f, indent=2, ensure_ascii=False)
 
-        # Detect language
-        detected_lang = detect_language(changes["files"])
+            detected_lang = detect_language(changes["files"])
 
-        # Get SHA refs from MR info for inline comments
-        diff_refs = mr_info.get("diff_refs", {})
-        base_sha = diff_refs.get("base_sha", "")
-        head_sha = diff_refs.get("head_sha", "")
-        start_sha = diff_refs.get("start_sha", "")
+            diff_refs = mr_info.get("diff_refs", {})
+            base_sha = diff_refs.get("base_sha", "")
+            head_sha = diff_refs.get("head_sha", "")
+            start_sha = diff_refs.get("start_sha", "")
 
-        # Create metadata
-        metadata = {
-            "gitlab_url": args.gitlab_url,
-            "project_path": args.project,
-            "mr_iid": args.mr_iid,
-            "mr_title": mr_info.get("title"),
-            "source_branch": mr_info.get("source_branch"),
-            "target_branch": mr_info.get("target_branch"),
-            "author": mr_info.get("author", {}).get("username"),
-            "detected_language": detected_lang,
-            "total_files": changes["changes"],
-            "total_additions": changes["additions"],
-            "total_deletions": changes["deletions"],
-            "existing_comments_count": len(comments),
-            "base_sha": base_sha,
-            "head_sha": head_sha,
-            "start_sha": start_sha,
-        }
+            metadata = {
+                "gitlab_url": args.gitlab_url,
+                "project_path": args.project,
+                "mr_iid": args.mr_iid,
+                "mr_title": mr_info.get("title"),
+                "source_branch": mr_info.get("source_branch"),
+                "target_branch": mr_info.get("target_branch"),
+                "author": mr_info.get("author", {}).get("username"),
+                "detected_language": detected_lang,
+                "total_files": changes["changes"],
+                "total_additions": changes["additions"],
+                "total_deletions": changes["deletions"],
+                "existing_comments_count": len(comments),
+                "base_sha": base_sha,
+                "head_sha": head_sha,
+                "start_sha": start_sha,
+            }
 
-        with open(output_dir / "metadata.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
+            with open(output_dir / "metadata.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-        # Write combined data file for easier consumption
-        combined_data = {
-            "mr_info": mr_info,
-            "changes": changes,
-            "existing_comments": comments,
-            "metadata": metadata,
-        }
-        with open(output_dir / "mr_data.json", "w", encoding="utf-8") as f:
-            json.dump(combined_data, f, indent=2, ensure_ascii=False)
+            combined_data = {
+                "mr_info": mr_info,
+                "changes": changes,
+                "existing_comments": comments,
+                "metadata": metadata,
+            }
+            with open(output_dir / "mr_data.json", "w", encoding="utf-8") as f:
+                json.dump(combined_data, f, indent=2, ensure_ascii=False)
 
-        print(f"✓ Successfully fetched MR data")
-        print(f"  - Language: {detected_lang}")
-        print(f"  - Files: {changes['changes']}")
-        print(f"  - Additions: {changes['additions']}")
-        print(f"  - Deletions: {changes['deletions']}")
-        print(f"  - Existing comments: {len(comments)}")
-        print(f"OUTPUT_DIR: {output_dir}")
+            print(f"✓ Successfully fetched MR data")
+            print(f"  - Language: {detected_lang}")
+            print(f"  - Files: {changes['changes']}")
+            print(f"  - Additions: {changes['additions']}")
+            print(f"  - Deletions: {changes['deletions']}")
+            print(f"  - Existing comments: {len(comments)}")
+            print(f"OUTPUT_DIR: {output_dir}")
+
+        else:
+            # Commit mode
+            commit_sha = args.commit_sha
+            print(f"Fetching commit {commit_sha} from {args.project}...")
+            commit_info = fetch_commit_info(
+                args.gitlab_url, args.project, commit_sha, args.token
+            )
+
+            with open(output_dir / "commit_info.json", "w", encoding="utf-8") as f:
+                json.dump(commit_info, f, indent=2, ensure_ascii=False)
+
+            print("Fetching diff...")
+            diffs = fetch_commit_diff(
+                args.gitlab_url, args.project, commit_sha, args.token
+            )
+            changes = parse_diff_changes(diffs)
+            recalc_diff_stats(changes)
+
+            with open(output_dir / "changes.json", "w", encoding="utf-8") as f:
+                json.dump(changes, f, indent=2, ensure_ascii=False)
+
+            with open(output_dir / "changes.diff", "w", encoding="utf-8") as f:
+                for diff in diffs:
+                    f.write(diff.get("diff", ""))
+                    f.write("\n")
+
+            print("Fetching existing discussions...")
+            discussions = fetch_commit_discussions(
+                args.gitlab_url, args.project, commit_sha, args.token
+            )
+            comments = extract_inline_comments(discussions)
+
+            with open(
+                output_dir / "existing_comments.json", "w", encoding="utf-8"
+            ) as f:
+                json.dump(comments, f, indent=2, ensure_ascii=False)
+
+            detected_lang = detect_language(changes["files"])
+
+            parent_ids = commit_info.get("parent_ids", [])
+            base_sha = parent_ids[0] if parent_ids else ""
+            head_sha = commit_sha
+            start_sha = base_sha
+
+            metadata = {
+                "gitlab_url": args.gitlab_url,
+                "project_path": args.project,
+                "commit_sha": commit_sha,
+                "commit_title": commit_info.get("title"),
+                "commit_message": commit_info.get("message"),
+                "author": commit_info.get("author_name"),
+                "detected_language": detected_lang,
+                "total_files": changes["changes"],
+                "total_additions": changes["additions"],
+                "total_deletions": changes["deletions"],
+                "existing_comments_count": len(comments),
+                "base_sha": base_sha,
+                "head_sha": head_sha,
+                "start_sha": start_sha,
+            }
+
+            with open(output_dir / "metadata.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+            combined_data = {
+                "commit_info": commit_info,
+                "changes": changes,
+                "existing_comments": comments,
+                "metadata": metadata,
+            }
+            with open(output_dir / "commit_data.json", "w", encoding="utf-8") as f:
+                json.dump(combined_data, f, indent=2, ensure_ascii=False)
+
+            print(f"✓ Successfully fetched commit data")
+            print(f"  - Language: {detected_lang}")
+            print(f"  - Files: {changes['changes']}")
+            print(f"  - Additions: {changes['additions']}")
+            print(f"  - Deletions: {changes['deletions']}")
+            print(f"  - Existing comments: {len(comments)}")
+            print(f"OUTPUT_DIR: {output_dir}")
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")

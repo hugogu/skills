@@ -38,11 +38,20 @@ def make_request(
 
 
 def post_inline_comment(
-    gitlab_url: str, project_path: str, mr_iid: int, token: str, comment: Dict
+    gitlab_url: str,
+    project_path: str,
+    token: str,
+    comment: Dict,
+    model: Optional[str] = None,
+    mr_iid: Optional[int] = None,
+    commit_sha: Optional[str] = None,
 ) -> bool:
-    """Post an inline comment to MR."""
+    """Post an inline comment to MR or commit."""
     encoded_path = urllib.parse.quote(project_path, safe="")
-    url = f"{gitlab_url}/api/v4/projects/{encoded_path}/merge_requests/{mr_iid}/discussions"
+    if commit_sha:
+        url = f"{gitlab_url}/api/v4/projects/{encoded_path}/repository/commits/{commit_sha}/discussions"
+    else:
+        url = f"{gitlab_url}/api/v4/projects/{encoded_path}/merge_requests/{mr_iid}/discussions"
 
     # Build position data
     position = {
@@ -59,7 +68,7 @@ def post_inline_comment(
     if comment.get("start_line"):
         position["old_line"] = comment.get("start_line")
 
-    data = {"body": format_comment_body(comment), "position": position}
+    data = {"body": format_comment_body(comment, model=model), "position": position}
 
     try:
         make_request(url, token, method="POST", data=json.dumps(data).encode("utf-8"))
@@ -84,17 +93,24 @@ def post_inline_comment(
     except Exception as e:
         print(f"Failed to post comment: {e}", file=sys.stderr)
         return False
-    except Exception as e:
-        print(f"Failed to post comment: {e}", file=sys.stderr)
-        return False
 
 
 def post_general_comment(
-    gitlab_url: str, project_path: str, mr_iid: int, token: str, body: str
+    gitlab_url: str,
+    project_path: str,
+    token: str,
+    body: str,
+    mr_iid: Optional[int] = None,
+    commit_sha: Optional[str] = None,
 ) -> bool:
-    """Post a general comment to MR (not inline)."""
+    """Post a general comment to MR (not inline) or commit."""
     encoded_path = urllib.parse.quote(project_path, safe="")
-    url = f"{gitlab_url}/api/v4/projects/{encoded_path}/merge_requests/{mr_iid}/notes"
+    if commit_sha:
+        url = f"{gitlab_url}/api/v4/projects/{encoded_path}/repository/commits/{commit_sha}/discussions"
+    else:
+        url = (
+            f"{gitlab_url}/api/v4/projects/{encoded_path}/merge_requests/{mr_iid}/notes"
+        )
 
     data = {"body": body}
 
@@ -106,7 +122,7 @@ def post_general_comment(
         return False
 
 
-def format_comment_body(comment: Dict) -> str:
+def format_comment_body(comment: Dict, model: Optional[str] = None) -> str:
     """Format comment body with markdown and optional suggestion block."""
     severity = comment.get("severity", "info")
     issue_type = comment.get("type", "issue")
@@ -140,6 +156,9 @@ def format_comment_body(comment: Dict) -> str:
     if reference:
         lines.extend(["", f"**参考**: {reference}"])
 
+    if model:
+        lines.extend(["", "---", f"*Reviewed by {model}*"])
+
     return "\n".join(lines)
 
 
@@ -166,6 +185,8 @@ def generate_summary_comment(review_data: Dict) -> str:
     """Generate summary comment markdown."""
     comments = review_data.get("comments", [])
     metadata = review_data.get("metadata", {})
+    model = metadata.get("model")
+    token_usage = metadata.get("token_usage")
 
     # Group by severity
     severity_counts = {"critical": 0, "warning": 0, "info": 0}
@@ -181,11 +202,16 @@ def generate_summary_comment(review_data: Dict) -> str:
     grade = calculate_quality_grade(severity_counts)
     total_issues = len(comments)
 
+    is_commit = bool(metadata.get("commit_sha"))
+    title = (
+        metadata.get("commit_title") if is_commit else metadata.get("mr_title", "MR")
+    )
+
     # Build summary
     lines = [
-        "## 📝 MR Review Summary",
+        f"## 📝 {'Commit' if is_commit else 'MR'} Review Summary",
         "",
-        f"**Reviewed**: {metadata.get('mr_title', 'MR')} ({metadata.get('detected_language', 'unknown')})",
+        f"**Reviewed**: {title} ({metadata.get('detected_language', 'unknown')})",
         f"**Files Changed**: {metadata.get('total_files', 0)} | "
         f"**Additions**: {metadata.get('total_additions', 0)} | "
         f"**Deletions**: {metadata.get('total_deletions', 0)}",
@@ -261,11 +287,19 @@ def generate_summary_comment(review_data: Dict) -> str:
     if severity_counts["info"] > 0:
         lines.append("- [ ] 酌情参考 info 级别的建议")
 
+    footer_parts = ["*This review was generated automatically."]
+    if model:
+        footer_parts.append(f"Reviewed by {model}.")
+    if token_usage is not None:
+        footer_parts.append(f"Total tokens: {token_usage}.")
+    footer_parts.append("Please feel free to discuss any suggestions.*")
+    footer = " ".join(footer_parts)
+
     lines.extend(
         [
             "",
             "---",
-            "*This review was generated automatically. Please feel free to discuss any suggestions.*",
+            footer,
         ]
     )
 
@@ -273,12 +307,16 @@ def generate_summary_comment(review_data: Dict) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Post review comments to GitLab MR")
+    parser = argparse.ArgumentParser(
+        description="Post review comments to GitLab MR or commit"
+    )
     parser.add_argument("--gitlab-url", required=True, help="GitLab URL")
     parser.add_argument(
         "--project", required=True, help="Project path (e.g., group/project)"
     )
-    parser.add_argument("--mr-iid", type=int, required=True, help="MR IID")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--mr-iid", type=int, help="MR IID")
+    group.add_argument("--commit-sha", help="Commit SHA")
     parser.add_argument("--token", required=True, help="GitLab Personal Access Token")
     parser.add_argument(
         "--comments-file", required=True, help="JSON file with comments to post"
@@ -315,7 +353,10 @@ def main():
             with open(metadata_path, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
 
-    review_data["metadata"] = metadata
+    # Merge metadata: comments-file metadata as base, metadata-file overrides
+    existing_metadata = review_data.get("metadata", {})
+    review_data["metadata"] = {**existing_metadata, **metadata}
+    review_model = review_data["metadata"].get("model")
 
     if args.dry_run:
         print("\n=== DRY RUN MODE ===\n")
@@ -323,12 +364,18 @@ def main():
         for i, comment in enumerate(comments, 1):
             print(f"\n--- Comment {i} ---")
             print(f"File: {comment.get('file_path')}:{comment.get('line')}")
-            print(f"Body:\n{format_comment_body(comment)}")
+            print(f"Body:\n{format_comment_body(comment, model=review_model)}")
 
         print("\n=== Summary Comment ===\n")
         print(generate_summary_comment(review_data))
 
         sys.exit(0)
+
+    post_kwargs = {}
+    if args.mr_iid:
+        post_kwargs["mr_iid"] = args.mr_iid
+    else:
+        post_kwargs["commit_sha"] = args.commit_sha
 
     # Post inline comments
     success_count = 0
@@ -336,7 +383,12 @@ def main():
         print(f"Posting comment on {comment.get('file_path')}:{comment.get('line')}...")
 
         if post_inline_comment(
-            args.gitlab_url, args.project, args.mr_iid, args.token, comment
+            args.gitlab_url,
+            args.project,
+            args.token,
+            comment,
+            model=review_model,
+            **post_kwargs,
         ):
             success_count += 1
             print("  ✓ Posted")
@@ -348,7 +400,7 @@ def main():
     summary_body = generate_summary_comment(review_data)
 
     if post_general_comment(
-        args.gitlab_url, args.project, args.mr_iid, args.token, summary_body
+        args.gitlab_url, args.project, args.token, summary_body, **post_kwargs
     ):
         print("  ✓ Summary posted")
     else:

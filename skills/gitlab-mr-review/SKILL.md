@@ -1,37 +1,58 @@
 ---
 name: gitlab-mr-review
 description: |
-  自动审查GitLab Merge Request并提供基于best practice的代码Review。
-  当用户需要review GitLab MR、进行代码审查、检查代码质量时使用此skill。
+  自动审查GitLab Merge Request或Commit并提供基于best practice的代码Review。
+  当用户需要review GitLab MR/Commit、进行代码审查、检查代码质量时使用此skill。
   适用于需要自动化代码review流程、确保代码质量、维护代码一致性的场景。
   支持JavaScript/TypeScript、Java、Python代码的review。
-  触发场景包括："review这个MR", "检查GitLab MR代码质量", "对这个PR进行代码审查",
-  "帮我看看这个merge request", "自动review GitLab MR", "GitLab MR代码审查"等。
+  触发场景包括："review这个MR", "review这个commit", "检查GitLab MR代码质量", "对这个PR进行代码审查",
+  "帮我看看这个merge request", "自动review GitLab MR", "GitLab MR代码审查", "review commit"等。
 ---
 
 # GitLab MR Review Skill
 
 ## Overview
 
-此skill用于自动化GitLab Merge Request的代码审查流程。它会：
+此skill用于自动化GitLab Merge Request和Commit的代码审查流程。它会：
 
-1. 获取MR的变更内容（diff）、现有comments和元数据
+1. 获取MR或Commit的变更内容（diff）、现有comments和元数据
 2. 使用LLM直接分析diff，基于checklist和best practice发现代码问题
 3. 过滤已有comments避免重复
-4. 在MR上留下inline comments（针对具体代码行）
+4. 在MR或Commit上留下inline comments（针对具体代码行）
 5. 发布带整体质量评级的review总结
 
 ## Prerequisites
 
 - GitLab Personal Access Token（具有`api`权限）
 - 环境变量 `GITLAB_TOKEN` 或技能执行时提供的token
-- GitLab项目URL和MR IID（MR编号）
+- GitLab项目URL和MR IID（MR编号）或 Commit SHA
 
 ## Supported Languages
 
 - JavaScript/TypeScript
 - Java
 - Python
+
+## Review Philosophy
+
+本 skill 的 AI Review 定位于**补充**而非**重复**现有静态代码分析工具（如 SonarQube、ESLint、Checkstyle、Pylint）。
+
+### 不评论的内容（静态工具已覆盖）
+
+- 命名规范（camelCase、PascalCase、snake_case 等）
+- 代码格式（缩进、空格、分号、引号、行长度、括号位置）
+- 简单 import 问题（未使用 import、通配符导入、排序）
+- 方法/类长度（除非已经严重到影响设计合理性）
+- 基础语法错误、拼写错误
+
+### 重点评论的内容（AI 更擅长）
+
+- **业务语义合理性**：代码变更在业务层面是否合理，逻辑是否符合业务常识，提示语是否准确
+- **架构与设计**：职责划分、抽象层次、SOLID 原则、分层合理性、设计模式选择
+- **逻辑正确性**：分支遗漏、边界条件、并发竞态、幂等性、状态一致性、异常恢复
+- **业务安全**：越权、数据泄漏、动态 SQL/命令注入、路径遍历等需要上下文判断的问题
+- **数据一致性**：事务边界、缓存一致性、并发写控制
+- **可维护性与扩展性**：硬编码业务规则、重复逻辑、接口稳定性、新增功能的改动范围
 
 ## Checklist Configuration
 
@@ -51,13 +72,21 @@ Review checklist采用分层配置：
 
 许多 GitLab 实例位于内网或需要特殊认证，直接网络请求会失败（如 `Unable to verify if domain is safe to fetch`）。**正确的做法是：立即解析 URL 参数，然后使用本地的 `fetch_mr.py` 脚本配合 `GITLAB_TOKEN` 调用 GitLab API。**
 
-从用户获取或从提供的 MR URL 中解析必需信息：
+从用户获取或从提供的 MR/Commit URL 中解析必需信息：
 
+**MR Review 必需参数**：
 ```
-必需参数：
 - gitlab_url: GitLab实例URL (e.g., https://gitlab.com)
 - project_path: 项目路径 (e.g., "group/project-name")
 - mr_iid: MR编号 (e.g., 42)
+- token: GitLab Personal Access Token（可选，优先使用GITLAB_TOKEN环境变量）
+```
+
+**Commit Review 必需参数**：
+```
+- gitlab_url: GitLab实例URL
+- project_path: 项目路径
+- commit_sha: Commit SHA (e.g., "a1b2c3d4...")
 - token: GitLab Personal Access Token（可选，优先使用GITLAB_TOKEN环境变量）
 ```
 
@@ -74,10 +103,8 @@ python3 -c "import os; t=os.environ.get('GITLAB_TOKEN',''); print('yes' if t els
 为了避免临时 review 文件污染项目目录，**统一使用 `.mr-review/` 作为输出目录**，并在项目 `.gitignore` 中忽略它：
 
 ```bash
-echo ".mr-review/" >> .gitignore
+grep -q ".mr-review/" .gitignore 2>/dev/null || echo ".mr-review/" >> .gitignore
 ```
-
-如果 `.gitignore` 中已存在则无需重复添加。
 
 ### Step 3: Fetch MR Data
 
@@ -122,61 +149,136 @@ python skills/gitlab-mr-review/scripts/fetch_mr.py `
 
 使用Read工具读取checklist内容。
 
-### Step 5: LLM Code Analysis
+### Step 5: Round 1 — Business Rationality Review（默认执行）
 
-将以下信息提供给LLM进行分析：
-- `changes.diff` 或 `changes.json` 中的代码变更
-- `existing_comments.json` 中的现有评论
-- checklist 内容
+**输入**：`changes.diff`（或 `changes.json`）、`existing_comments.json`
 
-**分析要求**：
+对变更进行第一轮分析，**只使用以下提示词**：
 
-1. **只关注新增/修改的代码**（diff中以 `+` 开头的行）。
-2. **行号必须准确**：`line` 必须是该代码在新文件中的实际行号（diff hunk中的新文件行号，即 `+` 行对应的行号），**不是** diff文件的物理行号。如果某行是新增文件中的第18行，就写18。
-3. **避免重复评论**：如果 `existing_comments.json` 中已有相同文件、相近行号、相似描述的评论，不要再提。
-4. **severity 分级**：
-   - `critical`: 阻塞性问题（安全漏洞、明显bug、BLOCKER级问题）
-   - `warning`: 需要关注（风格问题、潜在问题、不应提交的本地配置等）
-   - `info`: 建议性意见（可以忽略）
-5. **comment 格式**：每个comment必须包含以下字段：
-   - `file_path`: 文件路径（如 `src/main/java/com/example/Foo.java`）
-   - `line`: 新文件中的行号（整数）
-   - `severity`: `critical` | `warning` | `info`
-   - `type`: 问题类型，如 `security`, `logic`, `code_consistency`, `style`, `performance`
-   - `message`: 问题描述（中文或英文，视项目语言而定）
-   - `suggestion`: 改进建议（可选，使用GitLab suggestion格式时提供具体代码）
-   - `reference`: 参考链接（可选）
-   - `base_sha`, `head_sha`, `start_sha`: 从metadata中获取
-
-**逻辑合理性分析（重点）**：
-除编码规范外，必须重点审查以下逻辑问题：
-- **分支完备性**：if/else/switch 是否覆盖所有场景，是否存在隐式遗漏
-- **循环与终止**：循环是否有明确退出条件，是否会死循环或提前终止
-- **状态一致性**：异常发生后对象/状态是否处于合理状态，是否留下半完成修改
-- **并发与时序**：多线程/异步场景下是否存在竞态条件、死锁、时序错误
-- **数值与边界**：除零、溢出、越界、浮点精度、时区处理是否正确
-- **幂等性与副作用**：重复调用是否安全，深/浅拷贝是否导致意外副作用
-- **条件判断陷阱**：短路求值误用、== 与 equals 混用、类型隐式转换
-
-**查找有效行号的快捷方式**：
-如果不知道某行精确的 `+` 行号，可以直接运行：
-
-```bash
-python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
-  --changes-file .mr-review/mr_data_42/changes.json \
-  --file "FooService.java" \
-  --context 2
+```
+从业务功能实现合理性的角度进行分析
 ```
 
-这会输出该文件所有可评论的 `+` 行及其前后 2 行上下文，直接复制行号即可。
+**本轮要求**：
+- **抛开 checklist**，purely 从业务常识和工程直觉出发。
+- 重点发现：**业务功能实现的合理性**。
+- 先看文件名、类名、方法名推断业务场景，再判断代码中的常量、枚举、默认值、返回逻辑是否与该场景常识匹配。
+- 本轮以 comment 列表形式暂存结果，不要输出最终 JSON。
 
-**特别注意的常见陷阱**：
-- `application.yml`、`.properties`、环境配置文件中出现的端口变更、超时变更、本地路径等，很可能是本地开发配置误提交，应标记为 `warning`。
-- 注解冗余（如Java中同时使用 `@Service` 和 `@Component`）、注释残留调试标记、魔法数字、缺少泛型参数、使用 `System.out.println` 等。
-- 捕获通用 `Exception` 在业务代码中常见，但如果不是必要的回退逻辑，可酌情标记为 `info` 或 `warning`。
-- 如果 SonarQube 等工具已在现有comments中指出了某问题，不要再重复评论。
+**行号规则（通用）**：
+- `line` 必须是 diff 中 `+` 行对应的新文件实际行号。
+- **严禁手动推算、心算或数 diff hunk 来猜测行号**。diff 格式极易误导，手动计算会浪费大量时间且极易出错。
+- **对任何不确定行号的 comment，必须在生成 JSON 前运行 `show_diff_lines.py` 获取精确行号**：
+  ```bash
+  python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
+    --changes-file .mr-review/mr_data_42/changes.json \
+    --file "FooService.java" \
+    --context 0
+  ```
+- 直接复制脚本输出中的 `+ 行号`，不要自行加减。
 
-### Step 6: Generate Review Comments JSON
+---
+
+### Step 6: Round 2 — Structured Review（仅在用户要求全面分析时执行）
+
+**触发条件**：用户明确说了"全面分析"、"详细 review"、"深度检查"、"按 checklist review"等类似要求时，才执行本步骤。否则跳过。
+
+**输入**：同样的 diff + Round 1 已发现的 comments + checklist 内容
+
+在 Round 1 的基础上，用 checklist 作为灵感参考，补充检查架构、设计、逻辑、安全和数据一致性等方面。**禁止 checklist-driven scanning**。
+
+**本轮要求**：
+- 如果 Round 1 已经提到了某个问题，本轮不要再重复。
+- 同样以 comment 列表形式暂存，不要输出最终 JSON。
+
+---
+
+### Step 6.5: Resolve Line Numbers (Before JSON)
+
+在生成 JSON **之前**，**必须确保每个 comment 的行号都是准确的**。
+
+如果你有任何一条 comment 的行号不是 100% 确定：
+
+1. **运行 `show_diff_lines.py` 查看精确行号**：
+   ```bash
+   python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
+     --changes-file .mr-review/mr_data_42/changes.json \
+     --file "TradeFileUploadServiceImpl.java" \
+     --context 0
+   ```
+2. 在输出中找到你要评论的那一行代码，**直接复制**前面的 `+ 行号`。
+3. 更新你的 comment 列表中的 `line` 字段。
+
+**禁止的行为**：
+- ❌ 在脑中根据 diff hunk 的 `@@` 信息推算行号
+- ❌ 手动数 diff 文件的物理行数然后加减
+- ❌ 凭记忆或猜测填写行号
+
+这是导致 review 发布 400 失败和浪费时间的主要原因，请务必使用脚本获取。
+
+---
+
+### Step 7: Generate Review Comments JSON
+
+如果**只执行了 Round 1**（默认情况）：直接将 Round 1 的 comments 生成 JSON。
+
+如果**执行了 Round 1 + Round 2**（用户要求全面分析时）：
+1. 将两轮的 comments 合并到同一个列表。
+2. **去重**：如果同一文件、同一行或相近行（±3 行）有相似描述的评论，只保留一条（优先保留描述更具体、severity 更高或带有 suggestion 的一条）。
+
+**控制总量**：无论是一轮还是两轮，最终 comments 都建议控制在 **6-8 条**以内。优先保留 `critical` 和 `warning`，将低价值的 `info` 合并或删除。
+
+确保每条 comment 都包含 `base_sha`、`head_sha`、`start_sha`（从 `metadata.json` 中获取）。
+
+将合并后的结果保存为 JSON 文件：
+
+`.mr-review/mr_42_comments.json`（MR 模式）或 `.mr-review/commit_a1b2c3d4_comments.json`（Commit 模式）
+
+```json
+{
+  "metadata": {
+    "gitlab_url": "...",
+    "project_path": "...",
+    "mr_iid": 42,
+    "mr_title": "...",
+    "detected_language": "java",
+    "total_files": 5,
+    "total_additions": 120,
+    "total_deletions": 30,
+    "has_conflicts": false,
+    "model": "kimi-for-coding/k2p5",
+    "token_usage": 15234
+  },
+  "comments": [
+    {
+      "file_path": "src/main/java/com/example/FooService.java",
+      "line": 42,
+      "severity": "warning",
+      "type": "business_semantics",
+      "message": "硬编码值与当前业务场景的常识不符，建议根据实际业务规则进行配置化或选择合适的枚举",
+      "suggestion": "将硬编码的业务参数抽为配置项或根据类型动态选择",
+      "base_sha": "...",
+      "head_sha": "...",
+      "start_sha": "..."
+    }
+  ],
+  "stats": {
+    "total_issues": 1,
+    "by_severity": {"critical": 0, "warning": 1, "info": 0},
+    "by_type": {"business_semantics": 1}
+  }
+}
+```
+
+如果 MR 存在合并冲突，请在 `metadata.has_conflicts` 中标记为 `true`（用于在 Summary 中高亮）。
+
+**模型与 Token 信息**：在 `metadata` 中记录本次 review 使用的模型名称和整体 Token 消耗量：
+- `model`: 当前使用的模型名称（如 `kimi-for-coding/k2p5`）
+- `token_usage`: 本次 review 整体消耗的 Token 总量（整数）
+
+**不要自己写 Python 脚本来保存 JSON**，直接使用 `Write` 工具写入文件即可。
+
+### Step 8: Validate Line Numbers (MUST DO)
 
 将LLM分析结果整理为如下JSON结构，并保存到文件 `.mr-review/mr_42_comments.json`：
 
@@ -191,16 +293,18 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
     "total_files": 5,
     "total_additions": 120,
     "total_deletions": 30,
-    "has_conflicts": false
+    "has_conflicts": false,
+    "model": "kimi-for-coding/k2p5",
+    "token_usage": 15234
   },
   "comments": [
     {
-      "file_path": "src/main/java/com/example/Foo.java",
-      "line": 18,
+      "file_path": "src/main/java/com/example/FooService.java",
+      "line": 42,
       "severity": "warning",
-      "type": "code_consistency",
-      "message": "同时使用了 @Service 和 @Component 注解，存在冗余",
-      "suggestion": "移除 @Component 注解，保留 @Service 即可",
+      "type": "business_semantics",
+      "message": "硬编码值与当前业务场景的常识不符，建议根据实际业务规则进行配置化或选择合适的枚举",
+      "suggestion": "将硬编码的业务参数抽为配置项或根据类型动态选择",
       "base_sha": "...",
       "head_sha": "...",
       "start_sha": "..."
@@ -209,12 +313,16 @@ python3 skills/gitlab-mr-review/scripts/show_diff_lines.py \
   "stats": {
     "total_issues": 1,
     "by_severity": {"critical": 0, "warning": 1, "info": 0},
-    "by_type": {"code_consistency": 1}
+    "by_type": {"business_semantics": 1}
   }
 }
 ```
 
 如果 MR 存在合并冲突，请在 `metadata.has_conflicts` 中标记为 `true`（用于在 Summary 中高亮）。
+
+**模型与 Token 信息**：在 `metadata` 中记录本次 review 使用的模型名称和整体 Token 消耗量：
+- `model`: 当前使用的模型名称（如 `kimi-for-coding/k2p5`）
+- `token_usage`: 本次 review 整体消耗的 Token 总量（整数）
 
 **不要自己写 Python 脚本来保存 JSON**，直接使用 `Write` 工具写入文件即可。
 
@@ -262,6 +370,52 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 ```
 
 `post_comments.py` 会自动跳过无法发布的行（如行号错误），并继续发布其余评论和 Summary。
+
+### Commit Review Workflow
+
+Commit Review 与 MR Review 流程基本一致，区别在于使用 `--commit-sha` 代替 `--mr-iid`，且输出目录建议以 commit SHA 命名：
+
+**Step 1: Fetch Commit Data**
+
+```bash
+python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token "$GITLAB_TOKEN" \
+  --output-dir .mr-review/commit_data_a1b2c3d4
+```
+
+这会生成与 MR 模式兼容的输出文件（`changes.json`、`changes.diff`、`existing_comments.json`、`metadata.json` 等），以及额外的 `commit_info.json` 和 `commit_data.json`。
+
+> 注意：Commit diff API 通常不会返回准确的 `additions`/`deletions` 统计，脚本会自动从 diff 文本中重新计算。
+
+**Step 2-7**: 与 MR Review 相同（读取 checklist、Round 1 业务合理性分析、可选 Round 2 结构化分析、生成 JSON 评论、验证行号）。生成评论 JSON 时保存到 `.mr-review/commit_a1b2c3d4_comments.json`。
+
+**Step 8: Post Commit Review Comments**
+
+```bash
+python3 skills/gitlab-mr-review/scripts/post_comments.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token "$GITLAB_TOKEN" \
+  --comments-file .mr-review/commit_a1b2c3d4_comments_validated.json \
+  --metadata-file .mr-review/commit_data_a1b2c3d4/metadata.json \
+  --dry-run
+```
+
+确认后正式发布（去掉 `--dry-run`）。评论会以 **Discussions** 的形式出现在该 Commit 的页面上。
+
+### Step 9: Cleanup Temporary Files
+
+Review 完成后，**默认清理**本次运行产生的 `.mr-review/` 临时数据，避免文件堆积：
+
+```bash
+rm -rf .mr-review/
+```
+
+如果用户明确要求保留中间文件用于排查，可以跳过此步骤。
 
 ## Comment Format
 
@@ -312,11 +466,30 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 5. **直接运行 CLI 命令** `fetch_mr.py` 获取MR数据到 `.mr-review/mr_data_42`
 6. 读取 `metadata.json` 和 `changes.diff`
 7. 检测编程语言，读取对应checklist
-8. **使用LLM直接分析diff**（重点审查逻辑合理性），生成 `.mr-review/mr_42_comments.json`
-9. **直接运行 CLI 命令** `validate_comments.py` 验证行号
-10. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
-11. 确认后正式发布inline comments和summary comment
-12. 向用户报告review结果摘要
+8. **Round 1（默认）**：只用提示词 *"从业务功能实现的合理性分析。"* 进行业务合理性分析
+9. **Round 2（仅在用户要求全面分析时执行）**：使用完整 checklist 进行结构化分析
+10. **对不确定的行号**，运行 `show_diff_lines.py` 获取精确行号
+11. 合并结果（或直接使用 Round 1 结果），生成 `.mr-review/mr_42_comments.json`
+12. **直接运行 CLI 命令** `validate_comments.py` 验证行号
+13. **直接运行 CLI 命令** `post_comments.py --dry-run` 预览
+14. 确认后正式发布inline comments和summary comment
+15. 向用户报告review结果摘要
+16. **清理 `.mr-review/` 临时文件**
+
+### Commit Review 示例
+
+**用户请求**：
+```
+帮我review一下这个commit：https://gitlab.com/mygroup/myproject/-/commit/a1b2c3d4
+```
+
+**执行流程**：
+1. 解析Commit URL，提取项目路径和Commit SHA (`a1b2c3d4`)
+2. 检查环境变量 `GITLAB_TOKEN`
+3. **直接运行 CLI 命令** `fetch_mr.py --commit-sha a1b2c3d4` 获取数据到 `.mr-review/commit_data_a1b2c3d4`
+4. 后续步骤（读取 checklist、Round 1 业务合理性分析、可选 Round 2 结构化分析、生成 JSON、验证行号、dry-run、发布）与 MR Review 完全一致
+5. 向用户报告review结果摘要
+6. **清理 `.mr-review/` 临时文件**
 
 ### 输出示例
 
@@ -342,13 +515,13 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 ### 问题类别
 
 - **Security**: 1
-- **Code Consistency**: 2
-- **Logic**: 1
+- **Logic**: 2
+- **Architecture**: 1
 
 ### 需要关注的问题
 
-🔴 `src/main/java/com/example/AuthController.java:23` - 用户输入未转义直接拼接到SQL查询
-🟡 `src/main/java/com/example/Utils.java:45` - 函数超过50行，建议拆分
+🔴 `src/main/java/com/example/AuthController.java:23` - 存在安全风险，用户输入未做充分校验即参与敏感操作
+🟡 `src/main/java/com/example/OrderService.java:67` - 并发场景下状态变更缺乏保护，可能出现数据不一致
 
 ### 评审意见
 
@@ -361,7 +534,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 - [ ] 酌情参考 info 级别的建议
 
 ---
-*This review was generated automatically. Please feel free to discuss any suggestions.*
+*This review was generated automatically. Reviewed by kimi-for-coding/k2p5. Total tokens: 15234. Please feel free to discuss any suggestions.*
 ```
 
 ## Error Handling
@@ -393,6 +566,7 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 |---------|---------|
 | `fetch_mr.py` 失败（401/403/404） | 向用户解释原因，请求确认 token/URL/权限，然后重试 |
 | `fetch_mr.py` 失败（网络超时） | 等待 3-5 秒后重试一次；若仍失败，向用户说明网络问题 |
+| `fetch_mr.py` 失败（Commit 不存在） | 确认 Commit SHA 是否完整正确（GitLab API 通常只需要前 8 位，但建议用完整 SHA） |
 | `show_diff_lines.py` 失败 | 该脚本为辅助工具，失败不影响主流程。可直接读取 `changes.json` 手动分析 |
 | `validate_comments.py` 失败（存在无效行号） | **必须**修正 JSON 中的行号（或换用 `--auto-fix`），然后重新验证，直到通过 |
 | `post_comments.py` 失败（summary 或部分 inline 失败） | 分析日志：如果是单条 400 被跳过，其余成功，则任务已完成；如果是批量 401/403，向用户说明 |
@@ -419,8 +593,9 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 
 ### fetch_mr.py
 
-获取MR数据。建议统一输出到 `.mr-review/` 子目录。
+获取MR或Commit数据。建议统一输出到 `.mr-review/` 子目录。
 
+**MR 模式**：
 ```bash
 python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --gitlab-url https://gitlab.com \
@@ -428,6 +603,16 @@ python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
   --mr-iid 42 \
   --token $GITLAB_TOKEN \
   --output-dir .mr-review/mr-data
+```
+
+**Commit 模式**：
+```bash
+python3 skills/gitlab-mr-review/scripts/fetch_mr.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token $GITLAB_TOKEN \
+  --output-dir .mr-review/commit-data
 ```
 
 ### show_diff_lines.py
@@ -456,8 +641,9 @@ python3 skills/gitlab-mr-review/scripts/validate_comments.py \
 
 ### post_comments.py
 
-发布 comments 和 Summary 到 MR。支持 `--dry-run` 预览。
+发布 comments 和 Summary 到 MR 或 Commit。支持 `--dry-run` 预览。
 
+**MR 模式**：
 ```bash
 python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --gitlab-url https://gitlab.com \
@@ -466,6 +652,17 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
   --token $GITLAB_TOKEN \
   --comments-file .mr-review/comments_validated.json \
   --metadata-file .mr-review/mr-data/metadata.json
+```
+
+**Commit 模式**：
+```bash
+python3 skills/gitlab-mr-review/scripts/post_comments.py \
+  --gitlab-url https://gitlab.com \
+  --project group/project \
+  --commit-sha a1b2c3d4 \
+  --token $GITLAB_TOKEN \
+  --comments-file .mr-review/comments_validated.json \
+  --metadata-file .mr-review/commit-data/metadata.json
 ```
 
 ## GitLab API Reference
@@ -505,6 +702,27 @@ python3 skills/gitlab-mr-review/scripts/post_comments.py \
 - **Create MR note**: `POST /projects/:id/merge_requests/:merge_request_iid/notes`
   - 文档: https://docs.gitlab.com/api/notes/#create-a-merge-request-note
   - 发布general comments（非inline的summary评论）
+
+### Commits API
+
+- **Get a single commit**: `GET /projects/:id/repository/commits/:sha`
+  - 文档: https://docs.gitlab.com/api/commits/#get-a-single-commit
+  - 获取Commit基本信息，包括 `parent_ids`（用于构造 `base_sha`）
+
+- **Get commit diff**: `GET /projects/:id/repository/commits/:sha/diff`
+  - 文档: https://docs.gitlab.com/api/commits/#get-the-diff-of-a-commit
+  - 获取Commit的diff内容（注意：此API返回的 `additions`/`deletions` 统计经常为0，脚本会自行从diff文本重算）
+
+### Commit Discussions API
+
+- **List commit discussions**: `GET /projects/:id/repository/commits/:sha/discussions`
+  - 文档: https://docs.gitlab.com/api/discussions/#list-all-commit-discussion-items
+  - 获取Commit现有的comments，用于避免重复
+
+- **Create commit discussion**: `POST /projects/:id/repository/commits/:sha/discussions`
+  - 文档: https://docs.gitlab.com/api/discussions/#create-a-commit-thread
+  - 在Commit页面创建inline comments或general discussion（不带 `position` 时）
+  - Position参数与MR discussion一致，其中 `head_sha` 为该commit本身，`base_sha`/`start_sha` 为其第一个parent commit
 
 ### Authentication
 
