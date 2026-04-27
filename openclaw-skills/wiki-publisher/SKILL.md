@@ -562,6 +562,8 @@ def update_wiki_page(page_id: int, content: str, description: str = "") -> dict:
           content: $content
           description: $description
           editor: "markdown"
+          isPublished: true
+          isPrivate: false
           tags: []
         ) {
           page {
@@ -641,17 +643,182 @@ if page_id:
     print(f"Updated: https://<wiki-url>/tech/api/rpc")
 ```
 
-## Reference
+## Internal Link Management
 
-- [GraphQL Spec - String Type](https://spec.graphql.org/October2021/#sec-String)
-- Wiki.js API Documentation: https://docs.requarks.io/dev/api
+### Find and Update References
 
----
+When a new wiki page is created, find existing references to it in other pages and update them to internal links.
 
-**Remember:** 
-- **Create:** Use `pages.create` with all fields including `tags: []` and `description`
-- **Update:** Use `pages.update` with `id`, `content`, `description`, and `tags: []`
-- **Query by ID:** Use `pages.single(id: <id>)` to get page details by ID
-- **Find by path:** Use `pages.list` then filter by `path` to find page ID (⚠️ `pages.single` does NOT accept `path` parameter)
-- Always use GraphQL Variables for content to avoid escaping issues
-- Always check `responseResult` for detailed error messages
+**Process:**
+1. Search all pages for plain text references to the new page title
+2. Update matching references to use internal wiki links
+3. Use absolute paths (`/path/to/page`) to ensure correct resolution
+
+**Example:**
+- Before: `| 《关键对话》 | 科里·帕特森 | 高风险对话的沟通技巧 |`
+- After: `| [关键对话](/books/crucial-conversations) | 科里·帕特森 | 高风险对话的沟通技巧 |`
+
+**Implementation:**
+```python
+import json
+import urllib.request
+
+def find_and_update_references(wiki_url: str, wiki_key: str, 
+                                page_title: str, page_path: str) -> list:
+    """
+    Find all pages referencing page_title and update to internal links.
+    
+    Args:
+        wiki_url: Wiki.js GraphQL endpoint
+        wiki_key: API key
+        page_title: Title of the new page (e.g., "关键对话")
+        page_path: Path of the new page (e.g., "books/crucial-conversations")
+    
+    Returns:
+        List of updated page paths
+    """
+    updated_pages = []
+    
+    # Step 1: List all pages
+    list_query = json.dumps({
+        "query": "{ pages { list { id path title } } }"
+    }).encode()
+    
+    req = urllib.request.Request(
+        wiki_url,
+        data=list_query,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {wiki_key}"
+        },
+        method='POST'
+    )
+    
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode())
+        pages = data.get('data', {}).get('pages', {}).get('list', [])
+    
+    # Step 2: Check each page for references
+    for page in pages:
+        page_id = page.get('id')
+        page_path_current = page.get('path')
+        
+        # Skip the page itself
+        if page_path_current == page_path:
+            continue
+        
+        # Get page content
+        content_query = json.dumps({
+            "query": f"query GetPage {{ pages {{ single(id: {page_id}) {{ id content }} }} }}"
+        }).encode()
+        
+        req = urllib.request.Request(
+            wiki_url,
+            data=content_query,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {wiki_key}"
+            },
+            method='POST'
+        )
+        
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode())
+                page_data = data.get('data', {}).get('pages', {}).get('single')
+                if not page_data:
+                    continue
+                
+                content = page_data.get('content', '')
+                
+                # Check for plain text references
+                # Match patterns like: 《关键对话》 or 关键对话 (not already linked)
+                import re
+                
+                # Pattern: 《Title》 not already a link
+                patterns = [
+                    (f'《{page_title}》', f'[{page_title}](/{page_path})'),
+                    (f'[{page_title}]()', f'[{page_title}](/{page_path})'),
+                    (f'[[{page_title}]]', f'[{page_title}](/{page_path})'),
+                ]
+                
+                modified = False
+                for old_text, new_text in patterns:
+                    if old_text in content and f'[{page_title}](/{page_path})' not in content:
+                        content = content.replace(old_text, new_text)
+                        modified = True
+                
+                if not modified:
+                    continue
+                
+                # Update page
+                update_query = '''
+                mutation UpdatePage($id: Int!, $content: String!, $description: String!) {
+                  pages {
+                    update(
+                      id: $id
+                      content: $content
+                      description: $description
+                      editor: "markdown"
+                      isPublished: true
+                      isPrivate: false
+                      tags: []
+                    ) {
+                      page { id path title }
+                      responseResult { succeeded errorCode message }
+                    }
+                  }
+                }
+                '''
+                
+                variables = {
+                    "id": page_id,
+                    "content": content,
+                    "description": f"Updated: added internal link to {page_title}"
+                }
+                
+                req = urllib.request.Request(
+                    wiki_url,
+                    data=json.dumps({"query": update_query, "variables": variables}).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {wiki_key}"
+                    },
+                    method='POST'
+                )
+                
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode())
+                    update_data = result.get('data', {}).get('pages', {}).get('update', {})
+                    if update_data.get('responseResult', {}).get('succeeded'):
+                        updated_pages.append(page_path_current)
+                        
+        except Exception as e:
+            print(f"Error processing page {page_path_current}: {e}")
+            continue
+    
+    return updated_pages
+```
+
+**Usage in workflow:**
+```python
+# After creating a new page
+create_result = create_wiki_page(...)
+
+# Update references in other pages
+updated = find_and_update_references(
+    wiki_url=WIKI_URL,
+    wiki_key=WIKI_KEY,
+    page_title="关键对话",
+    page_path="books/crucial-conversations"
+)
+
+print(f"Updated references in {len(updated)} pages: {updated}")
+```
+
+**Important Notes:**
+- Always use absolute paths (`/path/to/page`) for internal links
+- Check that the link doesn't already exist before updating
+- Skip the page itself (don't self-reference)
+- Handle errors gracefully - some pages may fail to update
+- Report which pages were updated
