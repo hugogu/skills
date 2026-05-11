@@ -25,6 +25,73 @@ Use this skill when:
 
 ## Content Formatting Rules
 
+### LaTeX Math Formulas
+
+Wiki.js only supports `$$...$$` (block) and `$...$` (inline) for LaTeX math. All other syntax will render as plain text.
+
+**Inline formulas** (inside sentences, list items, table cells):
+- Use `$...$`
+- Examples: `$x(t) \in \mathbb{R}^n$`, `$\dot{x} = Ax + Bu$`, `$K_p \cdot e(t)$`
+- **NEVER** use `$$...$$` inside a list item or sentence
+
+**Block formulas** (standalone, on their own lines):
+- Use `$$...$$` with blank lines before and after
+- Example:
+  ```markdown
+  $$\dot{x}(t) = Ax(t) + Bu(t)$$
+
+  $$y(t) = Cx(t) + Du(t)$$
+  ```
+
+**Prohibited patterns:**
+- `\[...\]` and `\(...\)` — not supported by Wiki.js
+- `` `...` `` (backticks) for math — renders as plain text code
+- `$...$$...$` (nesting block inside inline) — breaks rendering
+- Unicode math characters (`α`, `β`, `σ`, `∞`, `∂`, `∫`, `→`, `≈`, `≤`, `≥`, `≠`, `·`) — use LaTeX commands instead
+
+**LaTeX command reference:**
+| Symbol | LaTeX | Unicode (DON'T USE) |
+|--------|-------|---------------------|
+| Greek α | `\alpha` | `α` |
+| Greek β | `\beta` | `β` |
+| Greek γ | `\gamma` | `γ` |
+| Greek δ | `\delta` | `δ` |
+| Greek σ | `\sigma` | `σ` |
+| Greek μ | `\mu` | `μ` |
+| Greek φ | `\phi` | `φ` |
+| Greek λ | `\lambda` | `λ` |
+| Infinity | `\infty` | `∞` |
+| Partial | `\partial` | `∂` |
+| Integral | `\int` | `∫` |
+| Sum | `\sum` | `∑` |
+| Arrow | `\to` | `→` |
+| Approx | `\approx` | `≈` |
+| ≤ | `\leq` | `≤` |
+| ≥ | `\geq` | `≥` |
+| ≠ | `\neq` | `≠` |
+| Dot product | `\cdot` | `·` |
+| Real numbers | `\mathbb{R}` | `ℝ` |
+
+**Spacing rules:**
+- Always put a space after a LaTeX command before a variable: `\partial x` not `\partialx`
+- Correct: `\frac{\partial f}{\partial x}`, `\sigma(y - x)`, `\dot{x}(t)`
+- Wrong: `\partialx`, `\partialf`, `\sigmay`, `\deltad`
+
+**Subscripts and superscripts:**
+- Simple: `x_0`, `A^T`, `y_n`
+- Multi-char: `x^{n+1}`, `A_{ij}`, `\sum_{i=1}^{n}`
+
+**Derivatives:**
+- First order: `\dot{x}` (not `ẋ` or `dx/dt` in plain text)
+- Second order: `\ddot{x}` (not `d²x/dt²`)
+- Partial: `\frac{\partial f}{\partial x}` (not `∂f/∂x`)
+
+**Fractions:**
+- Always use `\frac{a}{b}` for displayed math
+- Inline simple fractions can use `/`: `$a/b$`
+
+---
+
 ### Remove YAML Frontmatter
 
 **CRITICAL:** Wiki.js stores title/description in API parameters, NOT in content.
