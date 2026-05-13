@@ -474,6 +474,19 @@ Suggest paths based on content type:
 | Personal notes | `notes/{category}/{name}` |
 | Project docs | `projects/{name}/{doc}` |
 
+### ⚠️ Reserved Path Words
+
+Wiki.js treats certain words as system-reserved. **Avoid using these as path segments** (especially with underscores):
+
+| Reserved Word | Example (BAD) | Safe Alternative |
+|---------------|---------------|------------------|
+| `fine` | `ai/tech/fine_tuning` | `ai/tech/fine-tuning` |
+| `home` | `docs/home_page` | `docs/home-page` |
+| `login` | `auth/login_form` | `auth/login-form` |
+| `register` | `user/register_page` | `user/register-page` |
+
+**Rule of thumb:** Always use **hyphens (`-`)** instead of **underscores (`_`)** in wiki paths. Not only does this avoid reserved word conflicts, it also produces cleaner URLs.
+
 ## Workflow
 
 ### For New Pages:
