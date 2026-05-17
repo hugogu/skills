@@ -1,177 +1,123 @@
-# Wiki.js GraphQL API Reference
+# Wiki.js API Reference
 
-## Authentication
+This is a reference companion to the `wiki-publisher` skill. See `SKILL.md` for detailed usage instructions.
 
-All API requests require an Authorization header:
+## Quick Reference Table
+
+| Operation | Method | Key | Requires Permission |
+|-----------|--------|-----|-------------------|
+| List pages | Query | None | `pages.list` |
+| Get single | Query | `id: Int!` | `pages.read` |
+| Create | Mutation | `content`, `title`, `path`, `description` + `tags` | `pages.create` |
+| Update | Mutation | `id`, `content`, `title`, `description` + `tags` | `pages.update` |
+| Move | Mutation | `id`, `destinationPath` | `pages.move` |
+| Delete | Mutation | `id` | `pages.delete` |
+
+## Endpoint
 
 ```
-Authorization: Bearer <WIKI_KEY>
+POST {WIKI_URL}/graphql
 ```
 
-## Common Operations
-
-### List Pages
+## GraphQL Schema Overview
 
 ```graphql
-query {
-  pages {
-    list {
-      id
-      path
-      title
-      description
-    }
-  }
+type Mutation {
+  pages: PageMutation
 }
-```
 
-### Get Single Page
+type PageMutation {
+  create(
+    content: String!
+    description: String!
+    editor: String
+    isPublished: Boolean
+    isPrivate: Boolean
+    locale: String
+    path: String!
+    tags: [String]!
+    title: String!
+  ): PageResponse
 
-```graphql
-query {
-  pages {
-    single(id: PAGE_ID) {
-      id
-      path
-      title
-      description
-      content
-      tags
-    }
-  }
+  update(
+    id: Int!
+    content: String!
+    description: String!
+    editor: String
+    isPublished: Boolean
+    isPrivate: Boolean
+    tags: [String]!
+    title: String!
+  ): PageResponse
+
+  move(
+    id: Int!
+    destinationPath: String!
+    destinationLocale: String
+  ): PageResponse
+
+  delete(id: Int!): PageDeleteResponse
 }
-```
 
-### Create Page
-
-```graphql
-mutation {
-  pages {
-    create(
-      content: "# Title\n\nContent..."
-      description: "Description"
-      editor: "markdown"
-      isPublished: true
-      isPrivate: false
-      locale: "zh"
-      path: "category/subcategory/page-name"
-      tags: ["tag1", "tag2"]
-      title: "Page Title"
-    ) {
-      page {
-        id
-        path
-        title
-      }
-    }
-  }
+type Query {
+  pages: PageQuery
 }
-```
 
-### Update Page
-
-```graphql
-mutation {
-  pages {
-    update(
-      id: PAGE_ID
-      content: "# Updated Title\n\nUpdated content..."
-      description: "Updated description"
-      editor: "markdown"
-    ) {
-      page {
-        id
-        path
-        title
-      }
-    }
-  }
+type PageQuery {
+  list: [Page!]!
+  single(id: Int!): Page
 }
-```
 
-### Delete Page
-
-```graphql
-mutation {
-  pages {
-    delete(id: PAGE_ID) {
-      responseResult {
-        succeeded
-        message
-      }
-    }
-  }
+type Page {
+  id: Int!
+  path: String!
+  title: String!
+  content: String!
+  description: String
+  tags: [PageTag!]!
+  locale: String
 }
-```
 
-## Python Example
+type PageResponse {
+  page: Page
+  responseResult: ResponseResult
+}
 
-Always use GraphQL Variables — never interpolate content strings directly into queries.
+type ResponseResult {
+  succeeded: Boolean!
+  errorCode: Int
+  message: String
+}
 
-```python
-import json
-import os
-import requests
+type PageDeleteResponse {
+  responseResult: ResponseResult
+}
 
-WIKI_URL = os.environ["WIKI_URL"]   # e.g. https://your-wiki.example.com/graphql
-WIKI_KEY = os.environ["WIKI_KEY"]
-
-def create_page(title, content, path, description="", tags=None):
-    query = '''
-    mutation CreatePage($content: String!, $title: String!,
-                        $path: String!, $description: String!,
-                        $tags: [String]!) {
-      pages {
-        create(
-          content: $content
-          description: $description
-          editor: "markdown"
-          isPublished: true
-          isPrivate: false
-          locale: "zh"
-          path: $path
-          tags: $tags
-          title: $title
-        ) {
-          page {
-            id
-            path
-            title
-          }
-        }
-      }
-    }
-    '''
-    variables = {
-        "content": content,
-        "title": title,
-        "path": path,
-        "description": description,
-        "tags": tags or []
-    }
-    response = requests.post(
-        WIKI_URL,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {WIKI_KEY}"
-        },
-        data=json.dumps({"query": query, "variables": variables})
-    )
-    return response.json()
+type PageTag {
+  id: Int
+  tag: String
+}
 ```
 
 ## Error Codes
 
-| Error | Meaning |
-|-------|---------|
-| `Unauthorized` | Invalid or missing API key |
-| `Forbidden` | Insufficient permissions |
-| `ValidationError` | Invalid input data |
-| `PageNotFound` | Page ID doesn't exist |
+| Code | Meaning | Typical Cause |
+|------|---------|---------------|
+| 0 | Success | — |
+| 403 | Forbidden | API key lacks required permission |
+| 404 | Not Found | Page ID doesn't exist |
+| 409 | Conflict | Path already exists (on create) |
+| 422 | Validation Error | Missing required field or type mismatch |
+| 500 | Internal Error | Server-side issue |
 
-## Best Practices
+## Tags Type Note
 
-1. Always check for existing pages before creating
-2. Use consistent path naming (kebab-case)
-3. Set appropriate tags for discoverability
-4. Keep content under 100KB for performance
+Wiki.js defines `tags` as `[String]!` (non-null array, elements may be null).
+Use `[]` for no tags. Both `["a", "b"]` and `["a", null, "b"]` work.
+
+## Content Verification
+
+After publishing, always verify by fetching the page content back and checking:
+1. Content length matches (or is close to) original
+2. No LaTeX backslash corruption: check for `rac{` (should be `\frac`), `partial` (should be `\partial`)
+3. No truncation at special characters
