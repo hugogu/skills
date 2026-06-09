@@ -337,6 +337,34 @@ def get_page_id_by_path(path: str) -> int:
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read().decode())
         pages = data.get('data', {}).get('pages', {}).get('list', [])
+
+    for page in pages:
+        if page['path'] == path:
+            return page['id']
+    return None
+```
+
+**Alternative:** If you need the full page content (including `content` field) and don't want to make two API calls, query `pages.list` with the `content` field directly:
+
+```graphql
+query {
+  pages {
+    list {
+      id
+      path
+      title
+      content
+      description
+      tags {
+        id
+        tag
+      }
+    }
+  }
+}
+```
+
+This returns all pages with their full content — filter client-side by path. This avoids the `pages.single(id: Int!)` limitation when you only know the path.
         for p in pages:
             if p.get('path') == path:
                 return p.get('id')
