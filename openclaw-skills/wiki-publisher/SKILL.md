@@ -166,6 +166,30 @@ query GetPage($id: Int!) {
 
 > ⚠️ `pages.single` requires numeric `id` — you CANNOT query by path directly. Always list first to get the ID.
 
+**Alternative: Query by path via `pages.list` with client-side filtering**
+
+If you only know the path and want to avoid listing all pages, use `pages.list` with a path filter in the query string (if supported by your Wiki.js version) or filter client-side:
+
+```graphql
+query GetPageByPath {
+  pages {
+    list {
+      id
+      path
+      title
+      content
+      description
+      tags {
+        id
+        tag
+      }
+    }
+  }
+}
+```
+
+Then filter: `pages.find(p => p.path === 'your/path')`
+
 ### 4.3 Create Page
 
 ```graphql
@@ -605,6 +629,7 @@ def publish_page(content, title, path, description='', tags=None):
 |-----------|-----------|----------------|-------------------|
 | List all | Query | None | N/A |
 | Get single | Query | `id: Int!` | Must use numeric ID, not path |
+| Get by path | Query | None | Use `pages.list` + client-side filter |
 | Create | Mutation | `content`, `title`, `path`, `description`, `tags` | All required, `tags` must be `[String]!` not `[String!]!` |
 | Update | Mutation | `id`, `content`, `title`, `description`, `tags` | Must pass ALL fields, ID must be correct |
 | Move | Mutation | `id`, `destinationPath` | Destination must not exist |
