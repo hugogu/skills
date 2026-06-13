@@ -193,6 +193,8 @@ This returns all pages with their full content — filter client-side by path. T
 
 ### 4.2 Get Single Page
 
+#### By ID
+
 Retrieve page content by numeric ID:
 
 ```graphql
@@ -213,31 +215,51 @@ query GetPage($id: Int!) {
 }
 ```
 
-> ⚠️ `pages.single` requires numeric `id` — you CANNOT query by path directly. Always list first to get the ID.
+> ⚠️ `pages.single` requires numeric `id` — you CANNOT query by path directly.
 
-**Alternative: Query by path via `pages.list` with client-side filtering**
+#### By Path (✅ Recommended)
 
-If you only know the path and want to avoid listing all pages, use `pages.list` with a path filter in the query string (if supported by your Wiki.js version) or filter client-side:
+Use `pages.singleByPath` to query by path + locale — no need to find the ID first:
 
 ```graphql
 query GetPageByPath {
   pages {
-    list {
+    singleByPath(path: "category/page-name", locale: "zh") {
       id
       path
       title
       content
       description
-      tags {
-        id
-        tag
-      }
     }
   }
 }
 ```
 
-Then filter: `pages.find(p => p.path === 'your/path')`
+**Parameters:**
+- `path: String!` — The page path (e.g. `"literature/french/renaissance"`)
+- `locale: String!` — Locale code (e.g. `"zh"`)
+
+**Returns:** Full page object with `id`, `path`, `title`, `content`, `description`, `tags`.
+
+**Why this is better than listing all pages:**
+- No need to paginate through hundreds of pages
+- Works even when API key lacks `pages.list` access to certain pages
+- Direct, single API call
+
+**Python example:**
+
+```python
+query = json.dumps({"query": """
+  query { pages { singleByPath(path: "your/path", locale: "zh") { id path title content } } }
+"""})
+req = urllib.request.Request(WIKI_URL, data=query.encode(),
+    headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {WIKI_KEY}'})
+with urllib.request.urlopen(req) as resp:
+    data = json.loads(resp.read())
+    page = data.get('data', {}).get('pages', {}).get('singleByPath')
+    if page:
+        pid = page['id']  # Now you can update or move this page
+```
 
 ### 4.3 Create Page
 
@@ -678,7 +700,7 @@ def publish_page(content, title, path, description='', tags=None):
 |-----------|-----------|----------------|-------------------|
 | List all | Query | None | N/A |
 | Get single | Query | `id: Int!` | Must use numeric ID, not path |
-| Get by path | Query | None | Use `pages.list` + client-side filter |
+| Get by path | Query | `path: String!`, `locale: String!` | Use `pages.singleByPath(path, locale)` — works without listing all pages |
 | Create | Mutation | `content`, `title`, `path`, `description`, `tags` | All required, `tags` must be `[String]!` not `[String!]!` |
 | Update | Mutation | `id`, `content`, `title`, `description`, `tags` | Must pass ALL fields, ID must be correct |
 | Move | Mutation | `id`, `destinationPath` | Destination must not exist |
