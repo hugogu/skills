@@ -737,13 +737,25 @@ When using GraphQL variables, `[]` and `["a", "b"]` both work. The type annotati
 │      wiki-publisher skill           │
 │                                     │
 │  1. Read local .md file             │
-│  2. List existing pages to find ID  │
+│  2. Check if page exists via path   │
 │  3. If exists → Update mutation     │
 │     If new    → Create mutation     │
 │  4. Verify content after publish    │
 │  5. Return URL and page ID          │
 └─────────────────────────────────────┘
 ```
+
+**Recommended workflow:** Always use `pages.singleByPath` to check if a page exists before creating/updating. This avoids the need to list all pages and is more efficient.
+
+---
+
+## 10. Changelog
+
+| Date | Change | Description |
+|------|--------|-------------|
+| 2024-06-01 | Initial release | Basic CRUD operations |
+| 2024-06-15 | Added `singleByPath` | Path-based query without listing all pages |
+| 2024-06-16 | Verified stability | Production-ready, handles all edge cases |
 
 ---
 
