@@ -223,6 +223,47 @@ open http://localhost:3000  # admin/admin
 
 ---
 
+### web-bookmark
+
+自动书签并分析对话中分享的网站。当用户发送 URL 时,自动抓取页面内容,提取标题 / 分类 / 主要功能 / 技术栈 / 安全注意事项,持久化到本地 JSON 存储(在 OpenClaw + kb MCP 环境下额外镜像到 kb `bookmarks/` 页面),并在后续对话中支持基于关键词、分类或域名的书签检索。
+
+**功能**
+- 自动检测用户消息中的 URL,去跟踪参数后规范化
+- 抓取页面并提取结构化信息(标题、描述、分类、主要功能、技术栈、IP / 安全提示)
+- 持久化到 `~/.claude/web-bookmarks/bookmarks.json`
+- 在 OpenClaw + kb MCP 环境下,自动镜像到 kb `bookmarks/<YYYY-MM-DD>-<domain-slug>` 页面
+- 支持基于关键词 / 分类 / 域名的书签检索
+- 支持按分类分组列出所有书签
+- 自动检测重复书签并提示
+- 对 JS 重的 SPA 站点,自动 fallback 抓 JS bundle 推断技术栈
+
+**分类参考**(1-3 个)
+- developer-tool / framework / library / reference / docs
+- blog / article / tutorial / product / saas
+- design / portfolio / news / academic / research
+- entertainment / social / finance / shopping / other
+
+**前置条件**
+- 无(使用 Claude Code / OpenClaw 内置 `WebFetch` / `web_fetch` 工具)
+- OpenClaw + kb MCP 可用时,自动启用 kb 镜像
+
+**使用示例**
+
+```bash
+# 无需安装命令 — 触发即用
+# Claude 会自动识别 URL 并开始 bookmark 流程
+```
+
+用户对话触发:
+- "看一下 https://www.orbits.observer/" → 自动书签 + 分析 + 持久化
+- "我之前发给你的那个太阳系网站是哪个来着?" → 关键词检索
+- "我收藏了哪些网站?" → 按分类分组列出
+- "找一下我存过的 X 类书签" → 分类过滤
+
+详见 [SKILL.md](skills/web-bookmark/SKILL.md)
+
+---
+
 ## 安装方法
 
 这些 Skill 设计用于 Claude Code 环境，也可单独使用。
@@ -237,6 +278,7 @@ npx skills add https://github.com/hugogu/skills --skill grant-gitlab
 npx skills add https://github.com/hugogu/skills --skill docker-deploy
 npx skills add https://github.com/hugogu/skills --skill git-commit
 npx skills add https://github.com/hugogu/skills --skill k6-load-testing
+npx skills add https://github.com/hugogu/skills --skill web-bookmark
 ```
 
 安装后可直接对话使用：
@@ -246,6 +288,8 @@ npx skills add https://github.com/hugogu/skills --skill k6-load-testing
 - "帮我创建一个查询最近7天订单的 Metabase Dashboard"
 - "为我的 API 设置压力测试"
 - "帮我测试 https://api.example.com 的性能"
+- "看一下 https://www.orbits.observer/"(自动分析并收藏网站)
+- "我之前发给你的那个太阳系网站是哪个来着?"
 
 ### 方式二：独立使用
 
@@ -280,6 +324,8 @@ skills/
     ├── assets/templates/            # 测试模板文件
     ├── references/                  # CI/CD 示例
     └── evals/                       # 测试用例
+└── web-bookmark/                    # 网站书签 + 自动分析
+    └── SKILL.md                     # 完整使用说明
 ```
 
 ---
