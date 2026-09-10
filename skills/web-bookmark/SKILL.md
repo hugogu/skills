@@ -81,7 +81,29 @@ Try in order:
    curl -sL -A "Mozilla/5.0 (compatible; web-bookmark/1.0)" <url> | head -300
    ```
 
-3. For JS-heavy sites (HTML body is just `<div id="root"></div>`), fetch JS bundles for stack analysis:
+3. **GitHub README probe (new in v1.1)** — if the page looks like a Docsify / GitHub-rendered site and WebFetch only returns `Loading...` or similar shell:
+
+   Detect GitHub hints in the raw HTML:
+
+   - `<noscript>` fallback links pointing to `github.com/...`
+   - `og:image` or `itemprop="image"` from `raw.githubusercontent.com/<owner>/<repo>/...`
+   - `logo.webp` or `README.md` in same-path resources
+   - Meta description mentioning "developers" / "open source" / community-driven language
+
+   If hints found, extract `<owner>/<repo>` and `<branch>` (default: `master`, fall back to `main`), then fetch the README directly:
+
+   ```bash
+   # Try master first, then main
+   for branch in master main; do
+     curl -sLf "https://raw.githubusercontent.com/<owner>/<repo>/${branch}/README.md" \
+       -o /tmp/readme.md && break
+   done
+   head -200 /tmp/readme.md  # title + intro + first sections
+   ```
+
+   This is the highest-yield strategy for curated-list sites (free-for.dev, awesome-* lists, GitHub-rendered docs) — WebFetch/readability cannot see the rendered Markdown content because Docsify hydrates client-side, but `raw.githubusercontent.com` serves the source directly.
+
+4. For JS-heavy sites (HTML body is just `<div id="root"></div>`), fetch JS bundles for stack analysis:
 
    ```bash
    curl -sL <url> | grep -oE '<script[^>]+src="[^"]+"' | head -10
