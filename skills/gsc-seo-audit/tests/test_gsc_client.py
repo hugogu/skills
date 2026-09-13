@@ -135,6 +135,18 @@ class DateRangeTests(unittest.TestCase):
         start, end = gsc_client.default_date_range(7, end="2026-06-30")
         self.assertEqual((start, end), ("2026-06-23", "2026-06-30"))
 
+    def test_malformed_end_raises_gscqueryerror_not_valueerror(self):
+        with self.assertRaisesRegex(gsc_client.GSCQueryError, "YYYY-MM-DD"):
+            gsc_client.default_date_range(7, end="not-a-date")
+
+    def test_malformed_start_raises_gscqueryerror_not_valueerror(self):
+        with self.assertRaisesRegex(gsc_client.GSCQueryError, "YYYY-MM-DD"):
+            gsc_client.default_date_range(7, end="2026-06-30", start="06/01/2026")
+
+    def test_negative_days_raises_gscqueryerror(self):
+        with self.assertRaises(gsc_client.GSCQueryError):
+            gsc_client.default_date_range(-7, end="2026-06-30")
+
 
 class HttpErrorWrappingTests(unittest.TestCase):
     def test_403_mentions_full_user(self):
@@ -299,6 +311,29 @@ class PerformanceReportTests(unittest.TestCase):
         )
         self.assertEqual(result["totals"]["clicks"], 100)
         self.assertEqual([d["date"] for d in result["daily"]], ["2026-06-01", "2026-06-02"])
+
+
+class ComparePeriodsTests(unittest.TestCase):
+    def test_respects_max_limit_below_the_1000_default(self):
+        service = FakeService()
+        seen_row_limits = []
+
+        def fake_query(siteUrl, body):
+            seen_row_limits.append(body["rowLimit"])
+            return _Executable({"rows": []})
+
+        service.searchanalytics = lambda: _Chain(query=fake_query)
+
+        # Previously this hard-coded limit=1000 for the internal fetch, which made
+        # validate_limit raise as soon as GSC_MAX_LIMIT was configured below 1000.
+        result = gsc_client.compare_periods(
+            site_url="sc-domain:example.com", p1_start="2026-01-01", p1_end="2026-01-31",
+            p2_start="2026-02-01", p2_end="2026-02-28", service=service,
+            settings=gsc_client.Settings(None, None, max_limit=50),
+        )
+
+        self.assertEqual(seen_row_limits, [50, 50])
+        self.assertEqual(result["rows"], [])
 
 
 class CheckIndexingTests(unittest.TestCase):

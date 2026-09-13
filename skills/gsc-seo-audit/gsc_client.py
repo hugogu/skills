@@ -147,12 +147,24 @@ def even_sample(items: list, k: int) -> list:
 
 
 def default_date_range(days: int, end: str | None = None, start: str | None = None) -> tuple[str, str]:
+    if not isinstance(days, int) or isinstance(days, bool) or days < 0:
+        raise GSCQueryError("days must be a non-negative integer.")
+
     # GSC dates are plain calendar days, not instants — the user's local "today" is what
     # they mean by "last N days", not a UTC-shifted one, so date.today() is intentional here.
     end_date = end or date.today().isoformat()  # noqa: DTZ011
+    try:
+        end_d = date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise GSCQueryError(f"end date must be in YYYY-MM-DD format, got {end_date!r}.") from exc
+
     if start:
+        try:
+            date.fromisoformat(start)
+        except ValueError as exc:
+            raise GSCQueryError(f"start date must be in YYYY-MM-DD format, got {start!r}.") from exc
         return start, end_date
-    end_d = date.fromisoformat(end_date)
+
     return (end_d - timedelta(days=days)).isoformat(), end_date
 
 
@@ -569,14 +581,15 @@ def compare_periods(
     settings = settings or Settings.from_env()
     service = service or create_service(settings)
     dims = dimensions or ["query"]
+    fetch_limit = min(1000, settings.max_limit)
 
     p1 = search_analytics(
         site_url=site_url, dimensions=dims, start_date=p1_start, end_date=p1_end,
-        limit=1000, data_state=data_state, service=service, settings=settings,
+        limit=fetch_limit, data_state=data_state, service=service, settings=settings,
     )
     p2 = search_analytics(
         site_url=site_url, dimensions=dims, start_date=p2_start, end_date=p2_end,
-        limit=1000, data_state=data_state, service=service, settings=settings,
+        limit=fetch_limit, data_state=data_state, service=service, settings=settings,
     )
 
     def key_of(record: dict[str, Any]) -> tuple:
