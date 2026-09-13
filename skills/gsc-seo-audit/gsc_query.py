@@ -24,6 +24,17 @@ def _parse_csv(value: str | None) -> list[str]:
     return [u.strip() for u in value.split(",") if u.strip()] if value else []
 
 
+def _omit_none(**kwargs) -> dict:
+    """Drop unset (None) args so the callee's own default kicks in.
+
+    `args.days or 28`-style fallbacks would silently turn an explicit
+    `--days 0` into 28, since 0 is falsy — argparse leaves the attribute
+    as None only when the flag was never passed, so `is None` is the
+    correct "was this given at all" check.
+    """
+    return {k: v for k, v in kwargs.items() if v is not None}
+
+
 # ============================================================
 # Reports — each returns a JSON-serializable dict.
 # ============================================================
@@ -61,8 +72,8 @@ def report_page_queries(args: argparse.Namespace, settings: Settings) -> dict:
 
 def report_performance(args: argparse.Namespace, settings: Settings) -> dict:
     return gsc_client.performance_report(
-        site_url=args.site_url, days=args.days or 28, start_date=args.start, end_date=args.end,
-        data_state=args.data_state, settings=settings,
+        site_url=args.site_url, start_date=args.start, end_date=args.end,
+        data_state=args.data_state, settings=settings, **_omit_none(days=args.days),
     )
 
 
@@ -70,8 +81,8 @@ def report_compare(args: argparse.Namespace, settings: Settings) -> dict:
     return gsc_client.compare_periods(
         site_url=args.site_url, p1_start=args.p1_start, p1_end=args.p1_end,
         p2_start=args.p2_start, p2_end=args.p2_end,
-        dimensions=_parse_csv(args.dimensions) or ["query"], limit=args.limit or 20,
-        data_state=args.data_state, settings=settings,
+        dimensions=_parse_csv(args.dimensions) or ["query"],
+        data_state=args.data_state, settings=settings, **_omit_none(limit=args.limit),
     )
 
 
@@ -91,9 +102,8 @@ def report_indexing(args: argparse.Namespace, settings: Settings) -> dict:
 
 def report_site_audit(args: argparse.Namespace, settings: Settings) -> dict:
     return gsc_client.run_site_audit(
-        site_url=args.site_url, sitemap_url=args.sitemap_url,
-        limit=args.limit or gsc_client.DEFAULT_SITEMAP_URL_CAP, lookback_days=args.lookback_days,
-        data_state=args.data_state, settings=settings,
+        site_url=args.site_url, sitemap_url=args.sitemap_url, lookback_days=args.lookback_days,
+        data_state=args.data_state, settings=settings, **_omit_none(limit=args.limit),
     )
 
 

@@ -437,6 +437,13 @@ class SitemapParsingTests(unittest.TestCase):
         self.assertEqual(total, 2)
         self.assertEqual(urls, ["https://example.com/a", "https://example.com/b"])
 
+    def test_rejects_non_http_schemes_without_ever_opening_them(self):
+        with patch("urllib.request.urlopen") as fake_urlopen:
+            for dangerous_url in ("file:///etc/passwd", "ftp://example.com/sitemap.xml", "gopher://x/y"):
+                with self.assertRaisesRegex(gsc_client.GSCQueryError, "scheme"):
+                    gsc_client.fetch_sitemap_urls(dangerous_url, cap=25)
+        fake_urlopen.assert_not_called()
+
     def test_gzip(self):
         gz = gzip.compress(URLSET_XML)
         with patch("urllib.request.urlopen", return_value=FakeHttpResponse(gz)):

@@ -8,7 +8,26 @@ import os
 import unittest
 from unittest.mock import patch
 
+import gsc_client
 import gsc_query
+
+
+class OmitNoneTests(unittest.TestCase):
+    def test_drops_only_none_values(self):
+        self.assertEqual(gsc_query._omit_none(days=0, limit=None, x="y"), {"days": 0, "x": "y"})
+
+    def test_explicit_zero_survives_into_report_performance_call(self):
+        # args.days or 28 used to turn an explicit --days 0 into 28, since 0 is falsy.
+        args = gsc_query.build_parser().parse_args(["performance", "--days", "0"])
+        with patch.object(gsc_client, "performance_report", return_value={}) as fake:
+            gsc_query.report_performance(args, gsc_client.Settings(None, None))
+        self.assertEqual(fake.call_args.kwargs["days"], 0)
+
+    def test_explicit_zero_survives_into_site_audit_limit(self):
+        args = gsc_query.build_parser().parse_args(["site-audit", "--limit", "0"])
+        with patch.object(gsc_client, "run_site_audit", return_value={}) as fake:
+            gsc_query.report_site_audit(args, gsc_client.Settings(None, None))
+        self.assertEqual(fake.call_args.kwargs["limit"], 0)
 
 
 class ParserTests(unittest.TestCase):

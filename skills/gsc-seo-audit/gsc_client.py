@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import os
 import time
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -416,6 +417,12 @@ def _collect_sitemap_urls(sitemap_url: str, depth: int, child_budget: list[int])
 
 
 def _fetch_sitemap_xml(url: str) -> ET.Element:
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise GSCQueryError(
+            f"Refusing to fetch sitemap URL with scheme {scheme!r} (only http/https are allowed): {url}"
+        )
+
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
