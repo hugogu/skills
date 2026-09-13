@@ -1,0 +1,35 @@
+{
+  "skill_name": "google-analytics",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "List the GA4 properties I can access, then tell me which property ID I should use for a report.",
+      "expected_output": "The assistant uses property discovery, reports only properties returned by Google, and asks the user to choose if more than one is available.",
+      "files": [],
+      "expectations": [
+        "Does not invent a property ID",
+        "Explains that the result reflects the configured identity's access"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "For property 123456789, show active users and sessions by day for the last 7 days, with the exact date range in the answer.",
+      "expected_output": "A daily GA4 report using the selected property, date dimension, activeUsers and sessions metrics, a seven-day relative range, and a concise table or structured result.",
+      "files": [],
+      "expectations": [
+        "Uses the daily report or an equivalent Data API report",
+        "Includes property ID, date range, dimensions, and metrics"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Compare traffic sources for my default GA4 property over the past 30 days and rank them by sessions. Return JSON so I can process it.",
+      "expected_output": "JSON containing source/medium rows ranked by sessions, preserving metric values and report metadata.",
+      "files": [],
+      "expectations": [
+        "Uses sessionSource and sessionMedium with sessions",
+        "Returns machine-readable JSON rather than an invented narrative"
+      ]
+    }
+  ]
+}
