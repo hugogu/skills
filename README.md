@@ -260,6 +260,45 @@ open http://localhost:3000  # admin/admin
 
 ---
 
+### gsc-seo-audit
+
+查询并分析 Google Search Console 数据，评估 SEO 表现与页面索引健康状况：搜索排名、点击、展现、CTR、平均排名、索引/未索引页面、Sitemap 状态及 URL 级别索引详情。内置只读 MCP Server 与 CLI 两种使用方式。
+
+**功能**
+- 搜索表现报表：按 query/page/device/country/date 维度查询点击、展现、CTR、排名
+- 站点级索引审计（site-audit）：基于 Sitemap 采样，优先对近期零流量的 URL 做 URL Inspection，突破每日 2000 次配额限制的瓶颈
+- 单 URL 索引诊断（inspect）：判定索引状态、覆盖状态、canonical、富媒体结果
+- 内置 SEO 分析方法论：健康度检查、CTR 优化机会挖掘、"临门一脚"关键词识别、关键词内耗（cannibalization）检测
+- 本地站点白名单（`GSC_ALLOWED_SITE_URLS`）与行数安全上限，防止误查未授权站点或返回过大结果集
+
+**前置条件**
+- Python 3.9+
+- 已启用 Search Console API 的 Google Cloud 项目
+- 已添加为目标站点 Full 权限用户的 Service Account
+
+**使用示例**
+```bash
+cd skills/gsc-seo-audit
+python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+
+export GSC_CREDENTIALS_PATH=/secure/path/service-account.json
+export GSC_SITE_URL=sc-domain:example.com
+
+# 校验凭据与访问权限
+.venv/bin/python gsc_query.py properties --output table
+
+# 常用报表
+.venv/bin/python gsc_query.py performance --days 28
+.venv/bin/python gsc_query.py search --dimensions query,page --limit 50 --output json
+
+# 站点级索引审计
+.venv/bin/python gsc_query.py site-audit --limit 25 --lookback-days 90
+```
+
+详见 [SKILL.md](skills/gsc-seo-audit/SKILL.md) 和 [README.md](skills/gsc-seo-audit/README.md)（完整 Google Cloud / Service Account 配置步骤）
+
+---
+
 ## 安装方法
 
 这些 Skill 设计用于 Claude Code 环境，也可单独使用。
@@ -275,12 +314,14 @@ npx skills add https://github.com/hugogu/skills --skill docker-deploy
 npx skills add https://github.com/hugogu/skills --skill git-commit
 npx skills add https://github.com/hugogu/skills --skill k6-load-testing
 npx skills add https://github.com/hugogu/skills --skill google-analytics
+npx skills add https://github.com/hugogu/skills --skill gsc-seo-audit
 ```
 
 安装后可直接对话使用：
 - "帮我把 nginx:1.27.3 同步到阿里云"
 - "给张三添加 myproject 的 Developer 权限"
 - "为我的 Node.js 项目设置 Docker 部署"
+- "看看我们网站最近的搜索排名和索引有没有问题"
 - "帮我创建一个查询最近7天订单的 Metabase Dashboard"
 - "为我的 API 设置压力测试"
 - "帮我测试 https://api.example.com 的性能"
@@ -318,10 +359,19 @@ skills/
 │   ├── SKILL.md                     # 完整使用说明
 │   ├── scripts/                     # 迁移脚本
 │   └── reference/                   # 参考配置
-└── k6-load-testing/                 # API 压力测试基础设施
+├── k6-load-testing/                 # API 压力测试基础设施
+│   ├── SKILL.md                     # 完整使用说明
+│   ├── assets/templates/            # 测试模板文件
+│   ├── references/                  # CI/CD 示例
+│   └── evals/                       # 测试用例
+└── gsc-seo-audit/                   # Google Search Console SEO 与索引审计
     ├── SKILL.md                     # 完整使用说明
-    ├── assets/templates/            # 测试模板文件
-    ├── references/                  # CI/CD 示例
+    ├── README.md                    # Google Cloud / Service Account 配置步骤
+    ├── gsc_client.py                # 核心客户端库（鉴权、报表、Sitemap 解析）
+    ├── gsc_query.py                 # CLI 入口
+    ├── gsc_mcp_server.py            # 可选 MCP Server
+    ├── reference/                   # 索引状态对照表
+    ├── tests/                       # 单元测试
     └── evals/                       # 测试用例
 ```
 
