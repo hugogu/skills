@@ -153,6 +153,43 @@ python scripts/generate_template.py time_series table=orders time_column=created
 
 ---
 
+### google-analytics
+
+通过 Google Analytics 4 Data API 和 Admin API 查询可访问的 GA4 属性，支持 MCP Server 和独立 CLI。
+
+**功能**
+- 发现当前 Google 身份可访问的账号和 GA4 属性
+- 查询概览、页面、来源/媒介、国家、设备、每日趋势和实时活跃用户
+- 支持自定义 dimensions、metrics、日期范围、过滤器和排序
+- 支持 JSON、CSV、表格输出，并提供属性 allowlist 和行数/日期安全上限
+- 只读，不创建、修改或删除 Google Analytics 配置
+
+**前置条件**
+- Python 3.10+
+- Google Cloud 项目已启用 Google Analytics Data API 和 Admin API
+- Service Account 或 Application Default Credentials
+- Service Account 在目标 GA4 属性中至少有 Viewer 权限
+
+**安装和配置**
+```bash
+cd skills/google-analytics
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+export GA4_CREDENTIALS_PATH=/secure/path/ga4-service-account.json
+export GA4_PROPERTY_ID=123456789
+```
+
+查看可访问属性并执行查询：
+```bash
+.venv/bin/python ga_query.py properties
+.venv/bin/python ga_query.py overview --days 7 --output json
+.venv/bin/python ga_query.py pages --days 30 --limit 20 --output csv
+```
+
+详见 [SKILL.md](skills/google-analytics/SKILL.md) 和 [README.md](skills/google-analytics/README.md)。
+
+---
+
 ### git-commit
 
 智能 Git 提交工具，提交前自动同步远程、判断是否 amend，并生成 Conventional Commits 格式的提交信息。
@@ -237,6 +274,7 @@ npx skills add https://github.com/hugogu/skills --skill grant-gitlab
 npx skills add https://github.com/hugogu/skills --skill docker-deploy
 npx skills add https://github.com/hugogu/skills --skill git-commit
 npx skills add https://github.com/hugogu/skills --skill k6-load-testing
+npx skills add https://github.com/hugogu/skills --skill google-analytics
 ```
 
 安装后可直接对话使用：
@@ -271,6 +309,11 @@ skills/
 ├── metabase-query/                  # Metabase 查询与 Dashboard
 │   ├── SKILL.md                     # 完整使用说明
 │   └── scripts/                     # SQL 安全检查脚本
+├── google-analytics/                # Google Analytics 4 查询与 MCP Server
+│   ├── SKILL.md                     # 完整使用说明
+│   ├── ga_mcp_server.py             # stdio MCP Server
+│   ├── ga_query.py                  # CLI 查询工具
+│   └── tests/                        # 离线测试
 ├── prisma-migrations/               # Prisma 迁移管理
 │   ├── SKILL.md                     # 完整使用说明
 │   ├── scripts/                     # 迁移脚本
