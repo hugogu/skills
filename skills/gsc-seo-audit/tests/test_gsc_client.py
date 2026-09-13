@@ -359,10 +359,14 @@ class RunSiteAuditTests(unittest.TestCase):
     def test_requires_sitemap_when_none_submitted(self):
         service = FakeService()
         service.sitemaps_response = {"sitemap": []}
-        with self.assertRaisesRegex(gsc_client.GSCQueryError, "No sitemaps"):
+        # The fallback advice must name something callers can actually invoke
+        # (the CLI report / MCP tool), not the internal Python function name.
+        with self.assertRaisesRegex(gsc_client.GSCQueryError, "No sitemaps") as ctx:
             gsc_client.run_site_audit(
                 site_url="sc-domain:example.com", service=service, settings=gsc_client.Settings(None, None)
             )
+        self.assertIn("gsc_indexing", str(ctx.exception))
+        self.assertNotIn("check_indexing", str(ctx.exception))
 
     def test_prioritizes_zero_impression_urls(self):
         service = FakeService()

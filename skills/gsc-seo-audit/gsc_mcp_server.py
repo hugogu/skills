@@ -9,6 +9,7 @@ backs the CLI, so both entry points share one implementation.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 from typing import Any
@@ -17,8 +18,17 @@ import gsc_client
 from gsc_client import GSCError
 
 
-def _json_result(value: dict[str, Any]) -> str:
-    return json.dumps(value, indent=2, ensure_ascii=False)
+def _json_default(obj: Any) -> Any:
+    # gsc_client functions like inspect_url return a dataclass instance directly
+    # (the CLI unwraps it with vars() itself) rather than a plain dict; json.dumps
+    # doesn't know how to serialize that on its own.
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _json_result(value: Any) -> str:
+    return json.dumps(value, indent=2, ensure_ascii=False, default=_json_default)
 
 
 def _run(fn, *args, **kwargs) -> str:
@@ -94,7 +104,13 @@ def create_server() -> Any:
     @server.tool()
     def gsc_inspect(page_url: str, site_url: str | None = None) -> str:
         """Full URL Inspection for one URL: indexing verdict, coverage state, canonical, rich results."""
-        return _run(gsc_client.inspect_url, site_url=site_url, page_url=page_url)
+        try:
+            settings = gsc_client.Settings.from_env()
+            resolved_site = gsc_client.resolve_site_url(site_url, settings)
+            result = gsc_client.inspect_url(site_url=resolved_site, page_url=page_url, settings=settings)
+        except GSCError as err:
+            return _json_result({"error": str(err)})
+        return _json_result({"site_url": resolved_site, **dataclasses.asdict(result)})
 
     @server.tool()
     def gsc_indexing(urls: str, site_url: str | None = None) -> str:
