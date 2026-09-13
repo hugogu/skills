@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover - depends on the test environment
     StdioServerParameters = None
     stdio_client = None
 
-
+@unittest.skipIf(ClientSession is None, "mcp is not installed")
 class InProcessToolTests(unittest.TestCase):
     """Exercises tool bodies directly (no subprocess), so gsc_client can be mocked.
 
