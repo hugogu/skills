@@ -20,7 +20,7 @@ from typing import Any
 
 READONLY_SCOPES = ("https://www.googleapis.com/auth/webmasters.readonly",)
 SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
-USER_AGENT = "gsc-seo-audit-skill/1.0 (+https://github.com/anthropics/claude-code)"
+USER_AGENT = "gsc-seo-audit-skill/1.0 (+https://github.com/hugogu/skills)"
 
 # Google-documented limits this client designs around:
 # - Search Analytics data is only retained for the trailing 16 months.
@@ -165,7 +165,10 @@ def default_date_range(days: int, end: str | None = None, start: str | None = No
             raise GSCQueryError(f"start date must be in YYYY-MM-DD format, got {start!r}.") from exc
         return start, end_date
 
-    return (end_d - timedelta(days=days)).isoformat(), end_date
+    # --days N means N calendar days total, inclusive of the end date, so the
+    # offset from end is N-1 (e.g. days=7 spanning Mon..Sun); days=0 means just
+    # the end date itself.
+    return (end_d - timedelta(days=max(days - 1, 0))).isoformat(), end_date
 
 
 def _wrap_http_error(err: Any, context: str) -> GSCError:
@@ -279,7 +282,7 @@ def list_sites(*, service: Any = None, settings: Settings | None = None) -> dict
 
 def search_analytics(
     *,
-    site_url: str,
+    site_url: str | None,
     dimensions: list[str],
     days: int | None = None,
     start_date: str | None = None,
@@ -343,7 +346,7 @@ def _row_to_record(row: SearchAnalyticsRow, dimensions: list[str]) -> dict[str, 
 # -- Sitemaps -------------------------------------------------------------
 
 
-def list_sitemaps(*, site_url: str, service: Any = None, settings: Settings | None = None) -> dict[str, Any]:
+def list_sitemaps(*, site_url: str | None, service: Any = None, settings: Settings | None = None) -> dict[str, Any]:
     settings = settings or Settings.from_env()
     resolved_site = resolve_site_url(site_url, settings)
     service = service or create_service(settings)
@@ -436,7 +439,7 @@ def _fetch_sitemap_xml(url: str) -> ET.Element:
 
 
 def inspect_url(
-    *, site_url: str, page_url: str, service: Any = None, settings: Settings | None = None
+    *, site_url: str | None, page_url: str, service: Any = None, settings: Settings | None = None
 ) -> InspectionResult:
     settings = settings or Settings.from_env()
     resolved_site = resolve_site_url(site_url, settings)
@@ -475,7 +478,7 @@ def _parse_inspection(page_url: str, resp: dict[str, Any]) -> InspectionResult:
 
 def batch_inspect(
     *,
-    site_url: str,
+    site_url: str | None,
     urls: list[str],
     pace_seconds: float = DEFAULT_INSPECT_PACE_SECONDS,
     service: Any = None,

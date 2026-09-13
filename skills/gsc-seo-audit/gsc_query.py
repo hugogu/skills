@@ -300,10 +300,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    settings = Settings.from_env()
-    if args.credentials:
-        settings = replace(settings, credentials_path=Path(args.credentials))
     try:
+        settings = Settings.from_env()
+        if args.credentials:
+            settings = replace(settings, credentials_path=Path(args.credentials))
         data = REPORTS[args.report](args, settings)
         print(format_output(args.report, data, args.output))
     except GSCError as err:

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
+import os
 import unittest
+from unittest.mock import patch
 
 import gsc_query
 
@@ -62,6 +65,18 @@ class RenderingTests(unittest.TestCase):
         out = gsc_query.format_output("performance", data, "table")
         self.assertIn("Clicks:", out)
         self.assertIn("100", out)
+
+
+class MainEntryPointTests(unittest.TestCase):
+    def test_invalid_env_settings_produce_clean_error_not_a_traceback(self):
+        # Settings.from_env() used to run before the try/except in main(), so a bad
+        # GSC_MAX_LIMIT raised GSCConfigurationError uncaught instead of a clean exit.
+        with patch.dict(os.environ, {"GSC_MAX_LIMIT": "not-a-number"}, clear=False):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = gsc_query.main(["properties"])
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Error:", stderr.getvalue())
 
 
 if __name__ == "__main__":

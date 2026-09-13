@@ -4,6 +4,7 @@ import gzip
 import json
 import os
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 import gsc_client
@@ -132,8 +133,16 @@ class DateRangeTests(unittest.TestCase):
         self.assertEqual((start, end), ("2026-06-01", "2026-06-30"))
 
     def test_days_computes_start_from_end(self):
+        # --days 7 means 7 calendar days total, inclusive of the end date
+        # (Mon..Sun), not 8 — the offset from end is days-1.
         start, end = gsc_client.default_date_range(7, end="2026-06-30")
-        self.assertEqual((start, end), ("2026-06-23", "2026-06-30"))
+        self.assertEqual((start, end), ("2026-06-24", "2026-06-30"))
+        span_days = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+        self.assertEqual(span_days, 7)
+
+    def test_zero_days_means_just_the_end_date(self):
+        start, end = gsc_client.default_date_range(0, end="2026-06-30")
+        self.assertEqual((start, end), ("2026-06-30", "2026-06-30"))
 
     def test_malformed_end_raises_gscqueryerror_not_valueerror(self):
         with self.assertRaisesRegex(gsc_client.GSCQueryError, "YYYY-MM-DD"):
