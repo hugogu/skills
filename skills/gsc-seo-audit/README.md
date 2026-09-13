@@ -49,6 +49,8 @@ export GSC_CREDENTIALS_PATH=/secure/path/service-account.json
 export GSC_SITE_URL=sc-domain:example.com
 ```
 
+`GSC_SITE_URL` is only a *default* for calls that don't specify one — see [Managing multiple properties](#managing-multiple-properties) below if you have more than one site. `GSC_CREDENTIALS_PATH` is the same regardless: one service account can be added to as many properties as you need.
+
 Optional safety settings:
 
 ```bash
@@ -56,7 +58,19 @@ export GSC_ALLOWED_SITE_URLS=sc-domain:example.com,https://other-site.com/
 export GSC_MAX_LIMIT=1000
 ```
 
-`GSC_ALLOWED_SITE_URLS` is useful when the service account can see more properties than you want this integration to query in a given context — it's a local restriction, not a substitute for Search Console's own permissions.
+`GSC_ALLOWED_SITE_URLS` is useful when the service account can see more properties than you want this integration to query in a given context — it's a local restriction, not a substitute for Search Console's own permissions. It accepts as many properties as you manage; it is not limited to one.
+
+## Managing multiple properties
+
+You do not need to change `GSC_SITE_URL` to switch properties. Every CLI command takes its own `--site-url` (every MCP tool takes `site_url`), which overrides the environment default for that one call:
+
+```bash
+.venv/bin/python gsc_query.py properties --output table   # see everything this credential can access
+.venv/bin/python gsc_query.py performance --site-url "sc-domain:shop-us.example.com" --days 28
+.venv/bin/python gsc_query.py performance --site-url "sc-domain:shop-jp.example.com" --days 28
+```
+
+If you manage several sites, either add all of them to `GSC_ALLOWED_SITE_URLS` (comma-separated) and rely on `--site-url` per call, or leave that variable unset entirely and let `properties` show you everything the service account can see. Only set `GSC_SITE_URL` if you genuinely have one primary property you query most often.
 
 ## Verify credentials and access
 
