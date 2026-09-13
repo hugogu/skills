@@ -1,0 +1,38 @@
+{
+  "skill_name": "gsc-seo-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I run marketing for our site at sc-domain:example.com. Can you check if our organic search traffic looks okay for the last 28 days, and call out anything that changed a lot compared to the 28 days before that?",
+      "expected_output": "A health-check answer that pulls the performance report for the last 28 days, compares it against the prior 28-day period, states the site URL and both date ranges used, and only flags changes that are meaningfully large rather than ordinary noise.",
+      "files": [],
+      "expectations": [
+        "States the exact site URL and both date ranges used",
+        "Uses the compare report (or two performance calls) rather than inventing numbers",
+        "Distinguishes a real notable change from normal week-to-week variation"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We published /pricing on example.com about three weeks ago and it still isn't showing up when I search for it on Google. Can you tell me what's wrong?",
+      "expected_output": "Runs a URL Inspection on the specific page, reports the verdict and coverage_state in plain language (not just the raw enum), and gives a concrete next step appropriate to that state using the coverage-states reference rather than generic SEO advice.",
+      "files": [],
+      "expectations": [
+        "Calls URL Inspection (inspect / gsc_inspect) on the exact page rather than guessing",
+        "Explains the coverage_state result in plain language, not just the raw API string",
+        "Does not claim it can submit a 'request indexing' call via API for this page"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Do a full indexing audit of sc-domain:example.com. I want to know how many pages have indexing problems and what the actual issues are, not just a raw dump of every URL.",
+      "expected_output": "Runs the sitemap-driven site audit, groups results into 'expected, no action needed' vs 'worth investigating' using the coverage-states reference, reports counts for the latter, and is upfront that the check is a prioritized sample bounded by the URL Inspection quota rather than a complete inventory of every URL on the site.",
+      "files": [],
+      "expectations": [
+        "Uses the site-audit report/tool rather than trying to inspect every sitemap URL one by one",
+        "Separates normal 'not indexed yet' states from states that need action, rather than reporting every non-indexed URL as broken",
+        "Discloses that the audit is a bounded sample, not a complete crawl of the whole sitemap"
+      ]
+    }
+  ]
+}
