@@ -13,7 +13,7 @@ import csv
 import io
 import json
 import sys
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import gsc_client
@@ -93,7 +93,7 @@ def report_sitemaps(args: argparse.Namespace, settings: Settings) -> dict:
 def report_inspect(args: argparse.Namespace, settings: Settings) -> dict:
     site_url = gsc_client.resolve_site_url(args.site_url, settings)
     result = gsc_client.inspect_url(site_url=site_url, page_url=args.page_url, settings=settings)
-    return {"site_url": site_url, **vars(result)}
+    return {"site_url": site_url, **asdict(result)}
 
 
 def report_indexing(args: argparse.Namespace, settings: Settings) -> dict:

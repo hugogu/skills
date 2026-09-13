@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -528,7 +528,7 @@ def summarize_inspections(site_url: str, results: list[InspectionResult], stoppe
         "coverage_breakdown": coverage_breakdown,
         "verdict_breakdown": verdict_breakdown,
         "stopped_early_reason": stopped_reason,
-        "results": [vars(r) for r in results],
+        "results": [asdict(r) for r in results],
     }
 
 
@@ -670,8 +670,8 @@ def run_site_audit(
         if not sitemaps:
             raise GSCQueryError(
                 f"No sitemaps are submitted for {resolved_site}. Pass sitemap_url explicitly "
-                "(e.g. https://example.com/sitemap.xml), or use check_indexing with an "
-                "explicit list of URLs instead."
+                "(e.g. https://example.com/sitemap.xml), or check specific URLs directly "
+                "instead: the 'indexing' CLI report, or the gsc_indexing MCP tool."
             )
         sitemap_path = sitemaps[0]["path"]
 

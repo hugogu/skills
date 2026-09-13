@@ -2,6 +2,7 @@
 name: gsc-seo-audit
 description: Query and analyze Google Search Console (GSC) data for SEO performance and page indexing health — search rankings, clicks, impressions, CTR, average position, indexed vs. not-indexed pages, sitemaps, and URL-level indexing status — through a read-only MCP server or the bundled CLI. Use this skill whenever the user asks about their site's SEO, organic search traffic, Google rankings, why a page isn't showing up in search, indexing problems or errors, crawl issues, Search Console data, or wants an SEO audit, indexing audit, or search-performance report for a property they own or can access — even if they don't say "Google Search Console" or "GSC" by name.
 compatibility: Python 3.9+, a Google Cloud project with the Search Console API enabled, and a service account added as a Full user on each property to query.
+version: 1.0.0
 ---
 
 # Google Search Console SEO & indexing audit skill
@@ -27,16 +28,25 @@ Read `README.md` in this skill directory for the full walkthrough (creating the 
 4. Install `requirements.txt`.
 5. Configure environment variables:
 
-   - `GSC_CREDENTIALS_PATH` — path to the service-account JSON key.
-   - `GSC_SITE_URL` — optional default property (`sc-domain:example.com` or `https://example.com/`).
-   - `GSC_ALLOWED_SITE_URLS` — optional comma-separated allowlist. When set, queries for any other property are rejected, even if the credential can technically see it.
+   - `GSC_CREDENTIALS_PATH` — path to the service-account JSON key. One service account can be added to any number of properties, so this is the only credential needed regardless of how many sites you manage.
+   - `GSC_SITE_URL` — optional *default* property (`sc-domain:example.com` or `https://example.com/`), used only when a call doesn't specify one. It is not a limit on which property you can query.
+   - `GSC_ALLOWED_SITE_URLS` — optional comma-separated allowlist of every property this credential is permitted to query here. Leave unset to allow any property the credential can see; set it to scope down (e.g. to the sites this project actually manages).
    - `GSC_MAX_LIMIT` — optional safety ceiling on row counts (default 1000).
+
+## Managing multiple properties
+
+Every report and tool takes its own `site_url` (MCP) / `--site-url` (CLI) argument — pass it explicitly and it overrides `GSC_SITE_URL` for that one call, no environment changes needed. Reconfiguring `GSC_SITE_URL` per query is never necessary; treat it purely as a convenience default for single-site setups, not a per-site switch. Discover what's available with `gsc_properties`, then just pass the right one on each call:
+
+```bash
+python3 gsc_query.py performance --site-url "sc-domain:shop-us.example.com" --days 28
+python3 gsc_query.py performance --site-url "sc-domain:shop-jp.example.com" --days 28
+```
 
 ## MCP workflow
 
 Prefer MCP tools when the server is configured; otherwise run the CLI directly (see below) — both call the same underlying code and return identical JSON.
 
-1. Call `gsc_properties` if the site is missing or ambiguous, and ask the user to choose when more than one is available.
+1. Call `gsc_properties` if the site is missing or ambiguous, and ask the user to choose when more than one is available — or, when the user is clearly comparing/managing several properties in one request, call the relevant report once per property rather than asking them to pick just one.
 2. Pick a lookback window. Relative ranges ("last 7 days", "this month") map to `days`; explicit ranges use start/end dates. Remember the 2-3 day data lag — "today" and "yesterday" usually have no data yet.
 3. Reach for the right tool:
    - `gsc_search` — top rows for one or more dimensions (`query`, `page`, `device`, `country`, `date`). This is the workhorse for most performance questions.
