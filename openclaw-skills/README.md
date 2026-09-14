@@ -69,6 +69,7 @@ A methodology for writing technical long-form articles and series. Two threads: 
 - Explain every term on first appearance (what it is, what it does, who made it, how it differs from its siblings)
 - No bare tables, no testing sections, no meta-commentary about the writer's own principles
 - Style pass: kill "not A but B" constructions, uniform paragraph shapes, filler adverbs, and trailing summary sentences
+- Cited sources: every external theory, standard, or dataset gets a reference entry; concrete numbers must trace back to a source
 
 **Trigger phrases:**
 - "write the next article in the series"
