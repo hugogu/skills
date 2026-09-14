@@ -57,6 +57,27 @@ Place this skill in your OpenClaw skills directory (usually `~/.openclaw/skills/
 **Files:**
 - `SKILL.md` - Main skill documentation
 
+### progressive-technical-narrative
+
+A methodology for writing technical long-form articles and series. Two threads: **content follows the reader's understanding**, and **language should read like a person wrote it**.
+
+**Location:** `openclaw-skills/progressive-technical-narrative/`
+
+**Features:**
+- Purpose before means: answer "why does this exist" before "how we built it"
+- Progressive exposition: introduce concepts in the order a reader can absorb them
+- Explain every term on first appearance (what it is, what it does, who made it, how it differs from its siblings)
+- No bare tables, no testing sections, no meta-commentary about the writer's own principles
+- Style pass: kill "not A but B" constructions, uniform paragraph shapes, filler adverbs, and trailing summary sentences
+
+**Trigger phrases:**
+- "write the next article in the series"
+- "太模板化" / "AI 味重" / "语气生硬"
+- "rewrite it like a tech blog, not a spec doc"
+
+**Files:**
+- `SKILL.md` - Main skill documentation
+
 ## Directory Structure
 
 ```
@@ -67,7 +88,9 @@ openclaw-skills/
 │   │   └── wiki-js-api.md
 │   └── scripts/
 │       └── publish_wiki.py
-└── git-commit/
+├── git-commit/
+│   └── SKILL.md
+└── progressive-technical-narrative/
     └── SKILL.md
 ```
 
@@ -77,6 +100,7 @@ openclaw-skills/
    ```bash
    cp -r openclaw-skills/wiki-publisher ~/.openclaw/skills/
    cp -r openclaw-skills/git-commit ~/.openclaw/skills/
+   cp -r openclaw-skills/progressive-technical-narrative ~/.openclaw/skills/
    ```
 
 2. For wiki-publisher: Ensure `WIKI_KEY` is set in your environment
