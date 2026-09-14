@@ -70,6 +70,7 @@ A methodology for writing technical long-form articles and series. Two threads: 
 - No bare tables, no testing sections, no meta-commentary about the writer's own principles
 - Style pass: kill "not A but B" constructions, uniform paragraph shapes, filler adverbs, and trailing summary sentences
 - Cited sources: every external theory, standard, or dataset gets a reference entry; concrete numbers must trace back to a source
+- Figures and a hero image: a lead image per article, plus charts wherever the text describes quantity, range, order, or containment; each figure must stand on its own with labels and a stated data source
 
 **Trigger phrases:**
 - "write the next article in the series"
