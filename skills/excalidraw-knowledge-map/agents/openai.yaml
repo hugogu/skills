@@ -1,0 +1,4 @@
+interface:
+  display_name: "知识拆解图"
+  short_description: "Create layered learning maps with LaTeX and compact layouts"
+  default_prompt: "Use $excalidraw-knowledge-map to build a layered knowledge map from concepts to underlying mechanisms, with LaTeX formulas and a compact layout."

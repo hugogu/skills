@@ -4,6 +4,27 @@
 
 ## 包含工具
 
+### excalidraw-knowledge-map
+
+创建和调整可编辑的分层知识拆解图：从领域总览逐步深入机制、算法、数学与数据原理，也可把一个主题展开成独立学习地图。
+
+**功能**
+- 区分知识分类、学习依赖和应用关系，提供直觉解释与小例子
+- 全部数学记号使用 LaTeX 排版，保留公式源码和可移植矢量素材
+- 卡片按实际内容收边，全局检查留白、公式基线与连线
+- 交付 Excalidraw 源文件、SVG、高清 PNG 和预览，并核对实际渲染
+
+**使用示例**
+```text
+用 $excalidraw-knowledge-map 画人工智能知识拆解图，从领域逐层展开到算法与数据原理。
+把总图中的概率统计展开成一张面向 AI 的大图，所有公式用 LaTeX。
+把已有图的布局全局收紧，卡片随内容调整高度，保留字号、公式和知识内容。
+```
+
+详见 [SKILL.md](skills/excalidraw-knowledge-map/SKILL.md)。
+
+---
+
 ### dockerhub-to-aliyun-acr-sync
 
 将 Docker Hub 镜像同步到阿里云 ACR 个人版。适合需要穿越 GFW 获取镜像的场景。
@@ -275,6 +296,7 @@ npx skills add https://github.com/hugogu/skills --skill docker-deploy
 npx skills add https://github.com/hugogu/skills --skill git-commit
 npx skills add https://github.com/hugogu/skills --skill k6-load-testing
 npx skills add https://github.com/hugogu/skills --skill google-analytics
+npx skills add https://github.com/hugogu/skills --skill excalidraw-knowledge-map
 ```
 
 安装后可直接对话使用：
@@ -295,6 +317,10 @@ npx skills add https://github.com/hugogu/skills --skill google-analytics
 
 ```
 skills/
+├── excalidraw-knowledge-map/         # 分层知识拆解图与公式排版
+│   ├── SKILL.md                     # 核心工作流与交付要求
+│   ├── agents/openai.yaml           # Codex 展示与调用信息
+│   └── references/                  # LaTeX、布局验证与验收场景
 ├── git-commit/                      # 智能 Git 提交
 │   └── SKILL.md                     # 完整使用说明
 ├── dockerhub-to-aliyun-acr-sync/    # Docker 镜像同步
